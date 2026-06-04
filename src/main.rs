@@ -5,11 +5,10 @@ mod chunk;
 fn main() {
     use chunk::Chunk;
     let mut chunk = Chunk::new();
-    let const_index = chunk.add_constant(1.5) as u8;
-
-    chunk.add_code(OpCode::Constant, 123);
-    chunk.add_code(const_index, 123);
-    chunk.add_code(OpCode::Return, 124);
+    for i in 0..350 {
+        chunk.add_constant(f64::from((i * 3) as u32), i);
+    }
+    chunk.add_code(OpCode::Return, 351);
 
     println!("{chunk}");
 }
