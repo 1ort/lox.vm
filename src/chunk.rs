@@ -1,44 +1,9 @@
-use crate::chunk::debug::format_chunk;
+use crate::opcode::OpCode;
+use crate::value::Value;
+use debug::format_chunk;
 use std::fmt::Display;
 
 mod debug;
-
-#[derive(Debug)]
-pub enum OpCode {
-    Pass,
-    Constant,
-    ConstLong,
-    Return,
-}
-
-impl From<OpCode> for u8 {
-    fn from(value: OpCode) -> Self {
-        value as u8
-    }
-}
-
-impl From<u8> for OpCode {
-    fn from(value: u8) -> Self {
-        use OpCode::*;
-        match value {
-            1 => Constant,
-            2 => ConstLong,
-            3 => Return,
-            _ => Pass,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Value {
-    Number(f64),
-}
-
-impl From<f64> for Value {
-    fn from(value: f64) -> Self {
-        Self::Number(value)
-    }
-}
 
 #[derive(Debug, Default)]
 pub struct Chunk {

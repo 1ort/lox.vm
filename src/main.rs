@@ -1,9 +1,11 @@
-use crate::chunk::OpCode;
+use chunk::Chunk;
+use opcode::OpCode;
 
 mod chunk;
+mod opcode;
+mod value;
 
 fn main() {
-    use chunk::Chunk;
     let mut chunk = Chunk::new();
     for i in 0..350 {
         chunk.add_constant(f64::from((i * 3) as u32), i);
