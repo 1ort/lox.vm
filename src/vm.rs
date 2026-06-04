@@ -1,11 +1,8 @@
-use std::{
-    iter::Iterator,
-    ops::{Div, Neg},
-};
+use std::iter::Iterator;
 
 use crate::{
     chunk::{Chunk, debug::format_instruction},
-    opcode::{self, OpCode},
+    opcode::OpCode,
     value::Value,
 };
 
@@ -73,7 +70,7 @@ impl<'a> VM<'a> {
                     return Ok(());
                 }
                 OpCode::Negate => {
-                    let val = self.pop().neg().map_err(ErrorKind::Runtime)?;
+                    let val = (-self.pop()).map_err(ErrorKind::Runtime)?;
                     self.push(val);
                 }
                 OpCode::Add | OpCode::Subtract | OpCode::Multiply | OpCode::Divide => {
