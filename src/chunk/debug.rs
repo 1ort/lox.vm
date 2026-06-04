@@ -1,8 +1,8 @@
 use crate::chunk::Chunk;
 use crate::chunk::OpCode;
-use std::fmt::Formatter;
+use std::fmt::Write;
 
-pub(super) fn format_chunk(chunk: &Chunk, f: &mut Formatter<'_>) {
+pub(super) fn format_chunk(chunk: &Chunk, f: &mut impl Write) {
     let mut offset = 0;
 
     while offset < chunk.code.len() {
@@ -10,7 +10,7 @@ pub(super) fn format_chunk(chunk: &Chunk, f: &mut Formatter<'_>) {
     }
 }
 
-pub(super) fn format_instruction(chunk: &Chunk, offset: usize, f: &mut Formatter<'_>) -> usize {
+pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> usize {
     use OpCode::*;
 
     let line = if offset == 0 || chunk.lines[offset] > chunk.lines[offset - 1] {
@@ -23,13 +23,13 @@ pub(super) fn format_instruction(chunk: &Chunk, offset: usize, f: &mut Formatter
 
     let instruction: OpCode = chunk.code[offset].into();
     match instruction {
-        Pass | Return => simple_instruction(instruction, offset, f),
+        Pass | Return | Negate => simple_instruction(instruction, offset, f),
         Constant => constant_instruction(instruction, chunk, offset, f),
         ConstLong => constlong_instruction(instruction, chunk, offset, f),
     }
 }
 
-fn simple_instruction(instruction: OpCode, offset: usize, f: &mut Formatter<'_>) -> usize {
+fn simple_instruction(instruction: OpCode, offset: usize, f: &mut impl Write) -> usize {
     let instruction = format!("{instruction:?}");
     writeln!(f, "{instruction:>16}").unwrap();
     offset + 1
@@ -39,7 +39,7 @@ fn constant_instruction(
     instruction: OpCode,
     chunk: &Chunk,
     offset: usize,
-    f: &mut Formatter<'_>,
+    f: &mut impl Write,
 ) -> usize {
     let const_index = chunk.code[offset + 1];
     let value = &chunk.constants[const_index as usize];
@@ -52,7 +52,7 @@ fn constlong_instruction(
     instruction: OpCode,
     chunk: &Chunk,
     offset: usize,
-    f: &mut Formatter<'_>,
+    f: &mut impl Write,
 ) -> usize {
     let const_index_bytes: [u8; 2] = (&chunk.code[(offset + 1)..(offset + 3)])
         .try_into()

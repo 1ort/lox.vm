@@ -4,6 +4,7 @@ pub enum OpCode {
     Constant,
     ConstLong,
     Return,
+    Negate,
 }
 
 impl From<OpCode> for u8 {
@@ -19,6 +20,7 @@ impl From<u8> for OpCode {
             1 => Constant,
             2 => ConstLong,
             3 => Return,
+            4 => Negate,
             _ => Pass,
         }
     }

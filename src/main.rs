@@ -1,16 +1,22 @@
-use chunk::Chunk;
-use opcode::OpCode;
+use crate::vm::VM;
 
 mod chunk;
 mod opcode;
 mod value;
+mod vm;
 
 fn main() {
-    let mut chunk = Chunk::new();
-    for i in 0..350 {
-        chunk.add_constant(f64::from((i * 3) as u32), i);
-    }
-    chunk.add_code(OpCode::Return, 351);
+    use chunk::Chunk;
+    use opcode::OpCode;
 
+    let mut chunk = Chunk::new();
+
+    chunk.add_constant(1.5, 99);
+    chunk.add_code(OpCode::Negate, 99);
+    chunk.add_code(OpCode::Return, 100);
     println!("{chunk}");
+
+    let mut vm = VM::new(&chunk);
+    let res = vm.run();
+    println!("{res:?}")
 }

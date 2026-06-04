@@ -2,14 +2,15 @@ use crate::opcode::OpCode;
 use crate::value::Value;
 use debug::format_chunk;
 use std::fmt::Display;
+use std::slice::Iter;
 
-mod debug;
+pub mod debug;
 
 #[derive(Debug, Default)]
 pub struct Chunk {
-    code: Vec<u8>,
-    lines: Vec<usize>,
-    constants: Vec<Value>,
+    pub code: Vec<u8>,
+    pub lines: Vec<usize>,
+    pub constants: Vec<Value>,
 }
 
 impl Chunk {
@@ -35,6 +36,10 @@ impl Chunk {
         } else {
             panic!("Can't store more constants")
         }
+    }
+
+    pub fn iter_code(&self) -> Iter<u8> {
+        self.code.iter()
     }
 
     /// Adds a constant to the chunk. Returns it's index
