@@ -1,8 +1,11 @@
-use std::{iter::Iterator, ops::Neg};
+use std::{
+    iter::Iterator,
+    ops::{Div, Neg},
+};
 
 use crate::{
     chunk::{Chunk, debug::format_instruction},
-    opcode::OpCode,
+    opcode::{self, OpCode},
     value::Value,
 };
 
@@ -11,7 +14,6 @@ const STACK_MAX: usize = 256;
 #[derive(Debug)]
 pub enum ErrorKind {
     Runtime(String),
-    Compile(String),
 }
 
 pub struct VM<'a> {
@@ -73,6 +75,19 @@ impl<'a> VM<'a> {
                 OpCode::Negate => {
                     let val = self.pop().neg().map_err(ErrorKind::Runtime)?;
                     self.push(val);
+                }
+                OpCode::Add | OpCode::Subtract | OpCode::Multiply | OpCode::Divide => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    let res = match opcode {
+                        OpCode::Add => a + b,
+                        OpCode::Subtract => a - b,
+                        OpCode::Multiply => a * b,
+                        OpCode::Divide => a / b,
+                        _ => unreachable!(),
+                    }
+                    .map_err(ErrorKind::Runtime)?;
+                    self.push(res);
                 }
             }
         }

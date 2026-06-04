@@ -5,6 +5,10 @@ pub enum OpCode {
     ConstLong,
     Return,
     Negate,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 
 impl From<OpCode> for u8 {
@@ -21,6 +25,10 @@ impl From<u8> for OpCode {
             2 => ConstLong,
             3 => Return,
             4 => Negate,
+            5 => Add,
+            6 => Subtract,
+            7 => Multiply,
+            8 => Divide,
             _ => Pass,
         }
     }

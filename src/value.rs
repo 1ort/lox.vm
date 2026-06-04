@@ -1,9 +1,10 @@
-use std::ops::Neg;
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Number(f64),
 }
+use Value::*;
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
@@ -16,8 +17,58 @@ impl Neg for Value {
 
     fn neg(self) -> Self::Output {
         match self {
-            Value::Number(num) => Ok(Value::Number(num.neg())),
-            _ => Err("Invalid negative target".into()),
+            Number(num) => Ok(Number(-num)),
+            _ => Err("Only number can be negated".into()),
+        }
+    }
+}
+
+impl Add for Value {
+    type Output = Result<Self, String>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number(a), Number(b)) => Ok(Number(a + b)),
+            _ => Err("Only two numbers can be added.".into()),
+        }
+    }
+}
+
+impl Sub for Value {
+    type Output = Result<Self, String>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number(a), Number(b)) => Ok(Number(a - b)),
+            _ => Err("Only two numbers can be subtracted.".into()),
+        }
+    }
+}
+
+impl Mul for Value {
+    type Output = Result<Self, String>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number(a), Number(b)) => Ok(Number(a * b)),
+            _ => Err("Only two numbers can be multiplied.".into()),
+        }
+    }
+}
+
+impl Div for Value {
+    type Output = Result<Self, String>;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Number(a), Number(b)) => {
+                if b == 0.0 {
+                    Err("Division by zero.".into())
+                } else {
+                    Ok(Number(a / b))
+                }
+            }
+            _ => Err("Only two numbers can be divided.".into()),
         }
     }
 }
