@@ -13,13 +13,9 @@ pub(super) fn format_chunk(chunk: &Chunk, f: &mut impl Write) {
 pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> usize {
     use OpCode::*;
 
-    let line = if offset == 0 || chunk.lines[offset] > chunk.lines[offset - 1] {
-        let l = chunk.lines[offset];
-        &format!("{l}")
-    } else {
-        "|"
-    };
-    write!(f, "{offset:<04} {line:>4} ").unwrap();
+    let span = &chunk.spans[offset];
+    let span = &format!("{span:?}");
+    write!(f, "{offset:<04} {span:>4} ").unwrap();
 
     let instruction: OpCode = chunk.code[offset].into();
     match instruction {

@@ -117,17 +117,17 @@ mod tests {
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {
         let mut chunk = Chunk::new();
-        chunk.add_constant(val, 0);
-        chunk.add_code(OpCode::Return, 0);
+        chunk.add_constant(val, 0..0);
+        chunk.add_code(OpCode::Return, 0..0);
         chunk
     }
 
     fn chunk_with_binary_op(a: impl Into<Value>, b: impl Into<Value>, op: OpCode) -> Chunk {
         let mut chunk = Chunk::new();
-        chunk.add_constant(a, 0);
-        chunk.add_constant(b, 0);
-        chunk.add_code(op as u8, 0);
-        chunk.add_code(OpCode::Return, 0);
+        chunk.add_constant(a, 0..0);
+        chunk.add_constant(b, 0..0);
+        chunk.add_code(op as u8, 0..0);
+        chunk.add_code(OpCode::Return, 0..0);
         chunk
     }
 
@@ -148,8 +148,8 @@ mod tests {
     #[test]
     fn test_constant_long() {
         let mut chunk = Chunk::new();
-        chunk.add_const_long(20., 0);
-        chunk.add_code(OpCode::Return, 0);
+        chunk.add_const_long(20., 0..0);
+        chunk.add_code(OpCode::Return, 0..0);
         let mut vm = VM::new(&chunk);
         assert!(vm.run().is_ok_and(|x| x == Value::Number(20.)));
     }
@@ -164,9 +164,9 @@ mod tests {
     #[test]
     fn test_negate_operator() {
         let mut chunk = Chunk::new();
-        chunk.add_constant(10., 0);
-        chunk.add_code(OpCode::Negate, 0);
-        chunk.add_code(OpCode::Return, 0);
+        chunk.add_constant(10., 0..0);
+        chunk.add_code(OpCode::Negate, 0..0);
+        chunk.add_code(OpCode::Return, 0..0);
         let mut vm = VM::new(&chunk);
         assert!(vm.run().is_ok_and(|x| x == Value::Number(-10.)));
     }
@@ -205,24 +205,24 @@ mod tests {
     #[test]
     fn test_multiple_operations() {
         let mut chunk = Chunk::new();
-        let line = 0;
-        chunk.add_constant(3., line);
-        chunk.add_constant(4., line);
-        chunk.add_code(OpCode::Add, line);
+        let span = 0..1;
+        chunk.add_constant(3., span.clone());
+        chunk.add_constant(4., span.clone());
+        chunk.add_code(OpCode::Add, span.clone());
         // 4 + 3 = 7
-        chunk.add_constant(20., line);
-        chunk.add_code(OpCode::Multiply, line);
+        chunk.add_constant(20., span.clone());
+        chunk.add_code(OpCode::Multiply, span.clone());
         // 20 * 7 = 140
-        chunk.add_constant(9., line);
-        chunk.add_constant(10., line);
-        chunk.add_code(OpCode::Subtract, line);
+        chunk.add_constant(9., span.clone());
+        chunk.add_constant(10., span.clone());
+        chunk.add_code(OpCode::Subtract, span.clone());
         // 10 - 9 = 1
-        chunk.add_code(OpCode::Divide, line);
+        chunk.add_code(OpCode::Divide, span.clone());
         // 1/140
-        chunk.add_constant(5., line);
-        chunk.add_code(OpCode::Divide, line);
+        chunk.add_constant(5., span.clone());
+        chunk.add_code(OpCode::Divide, span.clone());
         // 5 / (1/140) == 700
-        chunk.add_code(OpCode::Return, line);
+        chunk.add_code(OpCode::Return, span.clone());
 
         let mut vm = VM::new(&chunk);
         assert!(vm.run().is_ok_and(|x| x == Value::Number(700.)));
