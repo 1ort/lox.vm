@@ -15,7 +15,7 @@ pub enum ErrorKind {
 
 pub struct VM<'a> {
     chunk: &'a Chunk,
-    stack: Vec<Value>, // todo: store &Value directly to top of stack
+    stack: Vec<Value>, // TODO: store &Value directly to top of stack
 }
 
 impl<'a> VM<'a> {

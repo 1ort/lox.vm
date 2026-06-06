@@ -1,6 +1,7 @@
 use crate::vm::VM;
 
 mod chunk;
+mod compiler;
 mod opcode;
 mod value;
 mod vm;
