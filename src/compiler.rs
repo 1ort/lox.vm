@@ -1,6 +1,6 @@
 mod lexer;
 mod token;
-use crate::{chunk::Chunk, compiler::token::TokenType, opcode::OpCode};
+use crate::{chunk::Chunk, compiler::token::TokenType, opcode::OpCode, value::Value};
 use core::panic;
 use lexer::Lexer;
 use std::{iter::Peekable, mem::discriminant};
@@ -35,17 +35,30 @@ impl<'a> Parser<'a> {
 
     fn expr_bp(&mut self, min_bp: u8) {
         let lhs = self.tokens.next().expect("Expect token.");
-        match &lhs.token_type {
+        match lhs.token_type {
             TokenType::Number(lexeme) => {
                 let value: f64 = lexeme.parse().expect("Expect number literal");
                 self.chunk.add_constant(value, lhs.span.clone());
+            }
+            TokenType::String(lexeme) => {
+                let value: String = lexeme.to_string();
+                self.chunk.add_constant(value, lhs.span.clone());
+            }
+            TokenType::True => {
+                self.chunk.add_constant(true, lhs.span.clone());
+            }
+            TokenType::False => {
+                self.chunk.add_constant(false, lhs.span.clone());
+            }
+            TokenType::Nil => {
+                self.chunk.add_constant(Value::Nil, lhs.span.clone());
             }
             TokenType::LeftParen => {
                 self.expr_bp(0);
                 self.expect_token(&TokenType::RightParen, "Expect ')' after expression.")
                     .expect("expect )");
             }
-            token_type @ (TokenType::Minus | TokenType::Bang) => {
+            ref token_type @ (TokenType::Minus | TokenType::Bang) => {
                 let (_, r_bp) = prefix_binding_power(token_type).unwrap_or_else(|| {
                     panic!("expected binding power for {token_type:?}");
                 });

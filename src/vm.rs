@@ -77,10 +77,10 @@ impl<'a> VM<'a> {
                     let a = self.pop();
                     let b = self.pop();
                     let res = match opcode {
-                        OpCode::Add => a + b,
-                        OpCode::Subtract => a - b,
-                        OpCode::Multiply => a * b,
-                        OpCode::Divide => a / b,
+                        OpCode::Add => b + a,
+                        OpCode::Subtract => b - a,
+                        OpCode::Multiply => b * a,
+                        OpCode::Divide => b / a,
                         _ => unreachable!(),
                     }
                     .map_err(ErrorKind::Runtime)?;

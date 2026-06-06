@@ -3,14 +3,30 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Number(f64),
+    Str(String),
+    Bool(bool),
+    Nil,
 }
-use Value::*;
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
         Self::Number(value)
     }
 }
+
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Self::Str(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+use Value::*;
 
 impl Neg for Value {
     type Output = Result<Self, String>;
@@ -29,7 +45,8 @@ impl Add for Value {
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Number(a), Number(b)) => Ok(Number(a + b)),
-            _ => Err("Only two numbers can be added.".into()),
+            (Str(a), Str(b)) => Ok(format!("{a}{b}").into()),
+            _ => Err("Only numbers or strings can be added.".into()),
         }
     }
 }
