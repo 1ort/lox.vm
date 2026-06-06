@@ -24,11 +24,20 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: impl Into<Value>, line: usize) {
-        let const_index = self.push_constant(value);
-        if const_index < 256 {
+        let const_size = self.constants.len();
+        if const_size < 256 {
+            let const_index = self.push_constant(value);
             self.add_code(OpCode::Constant, line);
             self.add_code(const_index as u8, line);
-        } else if const_index < 2usize.pow(16) {
+        } else {
+            self.add_const_long(value, line);
+        }
+    }
+
+    pub fn add_const_long(&mut self, value: impl Into<Value>, line: usize) {
+        let const_size = self.constants.len();
+        if const_size < 2usize.pow(16) {
+            let const_index = self.push_constant(value);
             let const_index: [u8; 2] = (const_index as u16).to_le_bytes();
             self.add_code(OpCode::ConstLong, line);
             self.add_code(const_index[0], line);
@@ -38,7 +47,7 @@ impl Chunk {
         }
     }
 
-    pub fn iter_code(&self) -> Iter<u8> {
+    pub fn iter_code(&self) -> Iter<'_, u8> {
         self.code.iter()
     }
 
@@ -115,6 +124,20 @@ mod test_chunk {
         for _ in 0..2usize.pow(16) {
             chunk.add_constant(3.15, 100);
         }
+    }
+
+    #[test]
+    fn add_const_long_direct() {
+        let mut chunk = Chunk::new();
+        chunk.add_const_long(12345.0, 42);
+
+        let index: u16 = 0;
+        let [low, high] = index.to_le_bytes();
+        let last_bytes = &chunk.code[0..];
+
+        assert_eq!(last_bytes, &[2, low, high]);
+        assert_eq!(chunk.lines[chunk.lines.len() - 3..], [42, 42, 42]);
+        assert_eq!(chunk.constants.last().unwrap(), &Value::Number(12345.0));
     }
 
     #[test]
