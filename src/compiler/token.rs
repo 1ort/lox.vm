@@ -48,6 +48,7 @@ pub enum TokenType<'a> {
     Break,
     Unexpected(&'a str),
     Unknown,
+    Comment(&'a str),
 }
 
 #[derive(Debug, Clone)]

@@ -34,93 +34,89 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex(self: &mut Lexer<'a>) -> Token<'a> {
+        self.skip_spaces();
+
+        let tok_start = self.pos;
         if let Some(c) = self.peek_char() {
-            if c.is_whitespace() {
-                self.skip_spaces();
-                self.lex()
-            } else if c.is_ascii_digit() {
-                self.lex_number()
-            } else if c == &'"' {
-                self.lex_string()
-            } else if c.is_ascii_alphanumeric() || matches!(c, '_') {
-                self.lex_keyword_or_identifier()
-            } else {
-                self.lex_symbol()
+            let token_type: TokenType<'a> = {
+                if c.is_ascii_digit() {
+                    self.lex_number()
+                } else if c == &'"' {
+                    self.lex_string()
+                } else if c.is_ascii_alphanumeric() || matches!(c, '_') {
+                    self.lex_keyword_or_identifier()
+                } else {
+                    self.lex_symbol()
+                }
+            };
+            match token_type {
+                TokenType::Unexpected(_) => Token {
+                    token_type,
+                    lexeme: "",
+                    span: tok_start..tok_start,
+                },
+                _ => {
+                    let span = tok_start..self.pos;
+
+                    Token {
+                        token_type,
+                        span: span.clone(),
+                        lexeme: &self.source[span],
+                    }
+                }
             }
         } else {
             Token {
                 token_type: TokenType::Eof,
                 lexeme: "",
-                span: self.pos..self.pos,
+                span: tok_start..tok_start,
             }
         }
     }
 
-    fn lex_number(self: &mut Lexer<'a>) -> Token<'a> {
-        let tok_start = self.pos;
+    fn lex_number(self: &mut Lexer<'a>) -> TokenType<'a> {
         let lexeme = self.take_till(|c| c.is_ascii_digit());
-        Token {
-            token_type: TokenType::Number(lexeme),
-            lexeme,
-            span: tok_start..self.pos,
-        }
+        TokenType::Number(lexeme)
     }
 
-    fn lex_string(self: &mut Lexer<'a>) -> Token<'a> {
-        let tok_start = self.pos;
+    fn lex_string(self: &mut Lexer<'a>) -> TokenType<'a> {
         self.next_char().expect("Expect opening quote.");
         let content = self.take_till(|c| c.ne(&'"'));
 
         if self.match_next_char('"') {
-            let span = tok_start..self.pos;
-            Token {
-                token_type: TokenType::String(content),
-                lexeme: &self.source[span.clone()],
-                span,
-            }
+            TokenType::String(content)
         } else {
-            Token {
-                token_type: TokenType::Unexpected("Unterminated string."),
-                lexeme: "",
-                span: tok_start..tok_start + 1,
-            }
+            TokenType::Unexpected("Unterminated string.")
         }
     }
 
-    fn lex_keyword_or_identifier(self: &mut Lexer<'a>) -> Token<'a> {
-        let tok_start = self.pos;
+    fn lex_keyword_or_identifier(self: &mut Lexer<'a>) -> TokenType<'a> {
         let lexeme = self.take_till(|c| c.is_ascii_alphanumeric() || matches!(c, '_'));
-        let span = tok_start..self.pos;
-        Token {
-            token_type: match lexeme {
-                "print" => TokenType::Print,
-                "var" => TokenType::Var,
-                "and" => TokenType::And,
-                "class" => TokenType::Class,
-                "else" => TokenType::Else,
-                "false" => TokenType::False,
-                "fun" => TokenType::Fun,
-                "for" => TokenType::For,
-                "if" => TokenType::If,
-                "nil" => TokenType::Nil,
-                "or" => TokenType::Or,
-                "return" => TokenType::Return,
-                "super" => TokenType::Super,
-                "this" => TokenType::This,
-                "true" => TokenType::True,
-                "while" => TokenType::While,
-                "break" => TokenType::Break,
-                _ => TokenType::Identifier(lexeme),
-            },
-            lexeme,
-            span,
+        match lexeme {
+            "print" => TokenType::Print,
+            "var" => TokenType::Var,
+            "and" => TokenType::And,
+            "class" => TokenType::Class,
+            "else" => TokenType::Else,
+            "false" => TokenType::False,
+            "fun" => TokenType::Fun,
+            "for" => TokenType::For,
+            "if" => TokenType::If,
+            "nil" => TokenType::Nil,
+            "or" => TokenType::Or,
+            "return" => TokenType::Return,
+            "super" => TokenType::Super,
+            "this" => TokenType::This,
+            "true" => TokenType::True,
+            "while" => TokenType::While,
+            "break" => TokenType::Break,
+            _ => TokenType::Identifier(lexeme),
         }
     }
 
-    fn lex_symbol(self: &mut Lexer<'a>) -> Token<'a> {
-        let tok_start = self.pos;
+    fn lex_symbol(self: &mut Lexer<'a>) -> TokenType<'a> {
         let c = self.next_char().expect("Expect symbol token.");
-        let token_type = match c {
+        match c {
             '(' => TokenType::LeftParen,
             ')' => TokenType::RightParen,
             '{' => TokenType::LeftBrace,
@@ -161,21 +157,13 @@ impl<'a> Lexer<'a> {
             }
             '/' => {
                 if self.match_next_char('/') {
-                    self.skip_till(|c| !c.eq(&'\n'));
-                    return self.lex();
+                    let lexeme = self.take_till(|c| !c.eq(&'\n'));
+                    TokenType::Comment(lexeme)
                 } else {
                     TokenType::Slash
                 }
             }
             _ => TokenType::Unknown,
-        };
-
-        let span = tok_start..self.pos;
-        let lexeme = &self.source[span.clone()];
-        Token {
-            token_type,
-            lexeme,
-            span,
         }
     }
 
@@ -275,7 +263,7 @@ mod tests {
     #[test]
     fn two_char_symbols() {
         let tokens = collect_tokens("== <= >= != // comment\n");
-        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens.len(), 6);
         let types: Vec<_> = tokens.iter().map(|t| &t.token_type).collect();
         assert!(matches!(types[0], TokenType::EqualEqual));
         assert!(tokens[0].lexeme == "==");
@@ -285,17 +273,26 @@ mod tests {
         assert!(tokens[2].lexeme == ">=");
         assert!(matches!(types[3], TokenType::BangEqual));
         assert!(tokens[3].lexeme == "!=");
-        assert!(matches!(types[4], TokenType::Eof));
+        assert!(matches!(types[4], TokenType::Comment(" comment")));
+        assert!(tokens[4].lexeme == "// comment");
+        assert!(matches!(types[5], TokenType::Eof));
     }
 
     #[test]
-    fn line_comment_skips_until_newline() {
+    fn line_comment_until_newline() {
         let tokens = collect_tokens("// this is a comment(){}+\n+");
-        assert_eq!(tokens.len(), 2);
-        assert!(matches!(tokens[0].token_type, TokenType::Plus));
-        assert!(matches!(tokens[1].token_type, TokenType::Eof));
-        assert_eq!(tokens[0].lexeme, "+");
-        assert_eq!(tokens[0].span, 26..27)
+        assert_eq!(tokens.len(), 3);
+        match tokens[0].token_type {
+            TokenType::Comment(" this is a comment(){}+") => {}
+            _ => panic!("Expected comment"),
+        }
+        assert!(matches!(tokens[1].token_type, TokenType::Plus));
+        assert!(matches!(tokens[2].token_type, TokenType::Eof));
+
+        assert_eq!(tokens[0].span, 0..25);
+        assert_eq!(tokens[0].lexeme, "// this is a comment(){}+");
+        assert_eq!(tokens[1].lexeme, "+");
+        assert_eq!(tokens[1].span, 26..27)
     }
 
     #[test]
@@ -343,7 +340,7 @@ mod tests {
             _ => panic!("Expected Unexpected"),
         }
         assert_eq!(tokens[0].lexeme, "");
-        assert_eq!(tokens[0].span, 0..1);
+        assert_eq!(tokens[0].span, 0..0);
         assert!(matches!(tokens[1].token_type, TokenType::Eof));
     }
 
