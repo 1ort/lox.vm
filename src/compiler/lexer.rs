@@ -6,6 +6,7 @@ pub(super) struct Lexer<'a> {
     source_iter: Peekable<Chars<'a>>,
     pos: usize,
     finished: bool,
+    peeked_next: Option<Option<char>>,
 }
 
 impl<'a> Iterator for Lexer<'a> {
@@ -30,6 +31,7 @@ impl<'a> Lexer<'a> {
             source_iter: source.chars().peekable(),
             pos: 0,
             finished: false,
+            peeked_next: None,
         }
     }
 
@@ -74,8 +76,19 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_number(self: &mut Lexer<'a>) -> TokenType<'a> {
-        let lexeme = self.take_till(|c| c.is_ascii_digit());
-        TokenType::Number(lexeme)
+        let tok_start = self.pos;
+        let integer_part = self.take_till(|c| c.is_ascii_digit());
+        if self.peek_char().is_some_and(|c| c == &'.')
+            && self.peek_two_chars().is_some_and(|c| c.is_ascii_digit())
+        {
+            self.next_char();
+            self.take_till(|c| c.is_ascii_digit());
+            let span = tok_start..self.pos;
+            TokenType::Number(&self.source[span])
+        } else {
+            println!("{}", self.pos);
+            TokenType::Number(integer_part)
+        }
     }
 
     fn lex_string(self: &mut Lexer<'a>) -> TokenType<'a> {
@@ -189,12 +202,29 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_char(&mut self) -> Option<char> {
-        self.source_iter.next().inspect(|_| {
-            self.pos += 1;
-        })
+        match self.peeked_next {
+            Some(x) => {
+                self.peeked_next = None;
+                self.pos += 1;
+                x
+            }
+            None => self.source_iter.next().inspect(|_| {
+                self.pos += 1;
+            }),
+        }
     }
 
     fn peek_char(&mut self) -> Option<&char> {
+        match self.peeked_next {
+            Some(ref x) => x.as_ref(),
+            None => self.source_iter.peek(),
+        }
+    }
+
+    fn peek_two_chars(&mut self) -> Option<&char> {
+        if self.peeked_next.is_none() {
+            self.peeked_next = Some(self.source_iter.next());
+        }
         self.source_iter.peek()
     }
 
@@ -295,25 +325,42 @@ mod tests {
     }
 
     #[test]
-    fn number_literal() {
-        let tokens = collect_tokens("42.007");
-        assert_eq!(tokens.len(), 4);
+    fn integer_number_literal() {
+        let tokens = collect_tokens("42");
+        assert_eq!(tokens.len(), 2);
+        match tokens[0].token_type {
+            TokenType::Number(s) => assert_eq!(s, "42"),
+            _ => panic!("Expected Number"),
+        }
+        assert_eq!(tokens[0].lexeme, "42");
+        assert_eq!(tokens[0].span, 0..2);
+    }
+
+    #[test]
+    fn integer_number_literal_with_dot() {
+        let tokens = collect_tokens("42.");
+        assert_eq!(tokens.len(), 3);
         match tokens[0].token_type {
             TokenType::Number(s) => assert_eq!(s, "42"),
             _ => panic!("Expected Number"),
         }
         assert!(matches!(tokens[1].token_type, TokenType::Dot));
-        match tokens[2].token_type {
-            TokenType::Number(s) => assert_eq!(s, "007"),
+        assert_eq!(tokens[0].lexeme, "42");
+        assert_eq!(tokens[0].span, 0..2);
+        assert_eq!(tokens[1].lexeme, ".");
+        assert_eq!(tokens[1].span, 2..3);
+    }
+
+    #[test]
+    fn fractional_number_literal() {
+        let tokens = collect_tokens("42.55");
+        assert_eq!(tokens.len(), 2);
+        match tokens[0].token_type {
+            TokenType::Number(s) => assert_eq!(s, "42.55"),
             _ => panic!("Expected Number"),
         }
-        assert_eq!(tokens[0].lexeme, "42");
-        assert_eq!(tokens[1].lexeme, ".");
-        assert_eq!(tokens[2].lexeme, "007");
-
-        assert_eq!(tokens[0].span, 0..2);
-        assert_eq!(tokens[1].span, 2..3);
-        assert_eq!(tokens[2].span, 3..6);
+        assert_eq!(tokens[0].lexeme, "42.55");
+        assert_eq!(tokens[0].span, 0..5);
     }
 
     #[test]
