@@ -57,7 +57,6 @@ impl<'a> Lexer<'a> {
                 },
                 _ => {
                     let span = tok_start..self.pos;
-
                     Token {
                         token_type,
                         span: span.clone(),
@@ -81,7 +80,7 @@ impl<'a> Lexer<'a> {
 
     fn lex_string(self: &mut Lexer<'a>) -> TokenType<'a> {
         self.next_char().expect("Expect opening quote.");
-        let content = self.take_till(|c| c.ne(&'"'));
+        let content = self.take_till(|c| c.ne(&'"') && c.ne(&'\n'));
 
         if self.match_next_char('"') {
             TokenType::String(content)
@@ -157,7 +156,7 @@ impl<'a> Lexer<'a> {
             }
             '/' => {
                 if self.match_next_char('/') {
-                    let lexeme = self.take_till(|c| !c.eq(&'\n'));
+                    let lexeme = self.take_till(|c| c.ne(&'\n'));
                     TokenType::Comment(lexeme)
                 } else {
                     TokenType::Slash
@@ -342,6 +341,29 @@ mod tests {
         assert_eq!(tokens[0].lexeme, "");
         assert_eq!(tokens[0].span, 0..0);
         assert!(matches!(tokens[1].token_type, TokenType::Eof));
+    }
+
+    #[test]
+    fn string_terminated_in_next_line_error() {
+        let source = "\"not terminated\n\"";
+        let tokens = collect_tokens(source);
+        assert_eq!(tokens.len(), 3);
+        println!("{tokens:?}");
+        match tokens[0].token_type {
+            TokenType::Unexpected(msg) => assert_eq!(msg, "Unterminated string."),
+            _ => panic!("Expected Unexpected"),
+        }
+        match tokens[1].token_type {
+            TokenType::Unexpected(msg) => assert_eq!(msg, "Unterminated string."),
+            _ => panic!("Expected Unexpected"),
+        }
+        assert_eq!(tokens[0].lexeme, "");
+        assert_eq!(tokens[0].span, 0..0);
+
+        assert_eq!(tokens[1].lexeme, "");
+        assert_eq!(tokens[1].span, 16..16);
+
+        assert!(matches!(tokens[2].token_type, TokenType::Eof));
     }
 
     #[test]
