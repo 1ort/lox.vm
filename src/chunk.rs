@@ -19,30 +19,32 @@ impl Chunk {
         Chunk::default()
     }
 
-    pub fn add_code(&mut self, byte: impl Into<u8>, span: Range<usize>) {
+    pub fn add_code(&mut self, byte: impl Into<u8>, span: impl Into<Range<usize>>) {
         self.code.push(byte.into());
-        self.spans.push(span);
+        self.spans.push(span.into());
     }
 
-    pub fn add_constant(&mut self, value: impl Into<Value>, span: Range<usize>) {
+    pub fn add_constant(&mut self, value: impl Into<Value>, span: Range<usize>) -> usize {
         let const_size = self.constants.len();
         if const_size < 256 {
             let const_index = self.push_constant(value);
             self.add_code(OpCode::Constant, span.clone());
             self.add_code(const_index as u8, span);
+            const_index
         } else {
-            self.add_const_long(value, span);
+            self.add_const_long(value, span)
         }
     }
 
-    pub fn add_const_long(&mut self, value: impl Into<Value>, span: Range<usize>) {
+    pub fn add_const_long(&mut self, value: impl Into<Value>, span: Range<usize>) -> usize {
         let const_size = self.constants.len();
         if const_size < 2usize.pow(16) {
             let const_index = self.push_constant(value);
-            let const_index: [u8; 2] = (const_index as u16).to_le_bytes();
+            let const_index_bytes: [u8; 2] = (const_index as u16).to_le_bytes();
             self.add_code(OpCode::ConstLong, span.clone());
-            self.add_code(const_index[0], span.clone());
-            self.add_code(const_index[1], span);
+            self.add_code(const_index_bytes[0], span.clone());
+            self.add_code(const_index_bytes[1], span);
+            const_index
         } else {
             panic!("Can't store more constants")
         }
@@ -53,7 +55,7 @@ impl Chunk {
     }
 
     /// Adds a constant to the chunk. Returns it's index
-    fn push_constant(&mut self, value: impl Into<Value>) -> usize {
+    pub fn push_constant(&mut self, value: impl Into<Value>) -> usize {
         self.constants.push(value.into());
         self.constants.len() - 1
     }
