@@ -1,8 +1,10 @@
 use crate::compiler::compile;
+use crate::interner::Interner;
 use crate::vm::VM;
 
 mod chunk;
 mod compiler;
+mod interner;
 mod opcode;
 mod value;
 mod vm;
@@ -24,14 +26,15 @@ fn main() -> ExitCode {
 
 fn repl() -> ExitCode {
     let mut rl = DefaultEditor::new().expect("Can not start repl");
+    let mut interner = Interner::new();
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
-                let chunk = compile(&line);
-                let mut vm = VM::new(&chunk);
+                let chunk = compile(&line, &mut interner);
+                let mut vm = VM::new(&chunk, &mut interner);
                 let result = vm.run();
                 println!("{result:?}");
             }

@@ -1,17 +1,20 @@
 mod lexer;
 mod token;
-use crate::{chunk::Chunk, compiler::token::TokenType, opcode::OpCode};
+use crate::{
+    chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode, value::Value,
+};
 use core::panic;
 use lexer::Lexer;
 use std::{iter::Peekable, mem::discriminant};
 use token::Token;
 
-pub fn compile(source: &str) -> Chunk {
+pub fn compile(source: &str, interner: &mut Interner) -> Chunk {
     let lexer = Lexer::new(source);
     let mut chunk = Chunk::new();
     let mut parser = Parser {
         tokens: lexer.peekable(),
         chunk: &mut chunk,
+        interner,
     };
     parser.compile();
     chunk
@@ -20,6 +23,7 @@ pub fn compile(source: &str) -> Chunk {
 struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
     chunk: &'a mut Chunk,
+    interner: &'a mut Interner,
 }
 
 impl<'a> Parser<'a> {
@@ -45,7 +49,8 @@ impl<'a> Parser<'a> {
                 self.chunk.add_constant(value, lhs.span.clone());
             }
             TokenType::String(lexeme) => {
-                let value: String = lexeme.to_string();
+                //let value: String = lexeme.to_string();
+                let value: Value = self.interner.intern(lexeme).into();
                 self.chunk.add_constant(value, lhs.span.clone());
             }
             TokenType::True => {
@@ -154,6 +159,8 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
 #[cfg(test)]
 mod test {
 
+    use crate::interner::Interner;
+
     use super::compile;
     #[test]
     fn test_parse_operators() {
@@ -185,8 +192,8 @@ mod test {
             ("1 < 2 > 3", "(1 < 2) > 3"),
         ];
         for (index, &(left, right)) in pairs.iter().enumerate() {
-            let chunk_left = compile(left);
-            let chunk_right = compile(right);
+            let chunk_left = compile(left, &mut Interner::default());
+            let chunk_right = compile(right, &mut Interner::default());
 
             assert_eq!(chunk_left.code, chunk_right.code, "case # {index}")
         }

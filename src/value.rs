@@ -1,9 +1,12 @@
-use std::ops::{Add, Div, Mul, Neg, Not, Sub};
+use std::{
+    ops::{Add, Div, Mul, Neg, Not, Sub},
+    rc::Rc,
+};
 
 #[derive(Clone, Debug)]
 pub enum Value {
     Number(f64),
-    Str(String),
+    Str(Rc<str>),
     Bool(bool),
     Nil,
 }
@@ -14,8 +17,8 @@ impl From<f64> for Value {
     }
 }
 
-impl From<String> for Value {
-    fn from(value: String) -> Self {
+impl From<Rc<str>> for Value {
+    fn from(value: Rc<str>) -> Self {
         Self::Str(value)
     }
 }
@@ -55,9 +58,9 @@ impl Add for Value {
 
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Number(a), Number(b)) => Ok(Number(a + b)),
-            (Str(a), Str(b)) => Ok(format!("{a}{b}").into()),
-            _ => Err("Only numbers or strings can be added.".into()),
+            (Number(a), Number(b)) => Ok((a + b).into()),
+            //(Str(a), Str(b)) => Ok((String::from(a.as_ref()) + b.as_ref()).into()),
+            _ => Err("Only numbers can be added.".into()),
         }
     }
 }
