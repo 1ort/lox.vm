@@ -1,6 +1,6 @@
 mod lexer;
 mod token;
-use crate::{chunk::Chunk, compiler::token::TokenType, opcode::OpCode, value::Value};
+use crate::{chunk::Chunk, compiler::token::TokenType, opcode::OpCode};
 use core::panic;
 use lexer::Lexer;
 use std::{iter::Peekable, mem::discriminant};
@@ -45,13 +45,13 @@ impl<'a> Parser<'a> {
                 self.chunk.add_constant(value, lhs.span.clone());
             }
             TokenType::True => {
-                self.chunk.add_constant(true, lhs.span.clone());
+                self.chunk.add_code(OpCode::True, lhs.span.clone());
             }
             TokenType::False => {
-                self.chunk.add_constant(false, lhs.span.clone());
+                self.chunk.add_code(OpCode::False, lhs.span.clone());
             }
             TokenType::Nil => {
-                self.chunk.add_constant(Value::Nil, lhs.span.clone());
+                self.chunk.add_code(OpCode::Nil, lhs.span.clone());
             }
             TokenType::LeftParen => {
                 self.expr_bp(0);

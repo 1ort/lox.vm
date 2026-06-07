@@ -19,7 +19,7 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
 
     let instruction: OpCode = chunk.code[offset].into();
     match instruction {
-        Pass | Return | Negate | Add | Subtract | Multiply | Divide => {
+        Pass | Return | Negate | Add | Subtract | Multiply | Divide | Not | True | False | Nil => {
             simple_instruction(instruction, offset, f)
         }
         Constant => constant_instruction(instruction, chunk, offset, f),

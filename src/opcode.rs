@@ -9,6 +9,10 @@ pub enum OpCode {
     Subtract,
     Multiply,
     Divide,
+    Not,
+    True,
+    False,
+    Nil,
 }
 
 impl From<OpCode> for u8 {
@@ -29,6 +33,10 @@ impl From<u8> for OpCode {
             6 => Subtract,
             7 => Multiply,
             8 => Divide,
+            9 => Not,
+            10 => True,
+            11 => False,
+            12 => Nil,
             _ => Pass,
         }
     }

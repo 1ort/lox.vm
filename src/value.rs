@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Not, Sub};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -23,6 +23,17 @@ impl From<String> for Value {
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Bool(value)
+    }
+}
+
+impl From<Value> for bool {
+    fn from(value: Value) -> Self {
+        match value {
+            Number(_) => true,
+            Str(_) => true,
+            Bool(x) => x,
+            Nil => false,
+        }
     }
 }
 
@@ -87,5 +98,14 @@ impl Div for Value {
             }
             _ => Err("Only two numbers can be divided.".into()),
         }
+    }
+}
+
+impl Not for Value {
+    type Output = Result<Self, String>;
+
+    fn not(self) -> Self::Output {
+        let x: bool = self.into();
+        Ok(Bool(!x))
     }
 }

@@ -73,6 +73,10 @@ impl<'a> VM<'a> {
                     let val = (-self.pop()).map_err(ErrorKind::Runtime)?;
                     self.push(val);
                 }
+                OpCode::Not => {
+                    let val = (!self.pop()).map_err(ErrorKind::Runtime)?;
+                    self.push(val);
+                }
                 OpCode::Add | OpCode::Subtract | OpCode::Multiply | OpCode::Divide => {
                     let a = self.pop();
                     let b = self.pop();
@@ -86,13 +90,16 @@ impl<'a> VM<'a> {
                     .map_err(ErrorKind::Runtime)?;
                     self.push(res);
                 }
+                OpCode::True => self.push(true),
+                OpCode::False => self.push(false),
+                OpCode::Nil => self.push(Value::Nil),
             }
         }
         Ok(Value::Number(0.))
     }
 
-    fn push(&mut self, val: Value) {
-        self.stack.push(val);
+    fn push(&mut self, val: impl Into<Value>) {
+        self.stack.push(val.into());
     }
 
     fn pop(&mut self) -> Value {
