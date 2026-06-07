@@ -83,16 +83,25 @@ impl<'a> Parser<'a> {
                 }
                 let op = self.tokens.next().expect("Expect token");
                 self.expr_bp(r_bp);
-                let opcode = match op.token_type {
-                    TokenType::Minus => OpCode::Subtract,
-                    TokenType::Plus => OpCode::Add,
-                    TokenType::Slash => OpCode::Divide,
-                    TokenType::Star => OpCode::Multiply,
+                let opcodes: &[OpCode] = match op.token_type {
+                    TokenType::Minus => &[OpCode::Subtract],
+                    TokenType::Plus => &[OpCode::Add],
+                    TokenType::Slash => &[OpCode::Divide],
+                    TokenType::Star => &[OpCode::Multiply],
+                    TokenType::Less => &[OpCode::Less],
+                    TokenType::Greater => &[OpCode::Greater],
+                    TokenType::Bang => &[OpCode::Not],
+                    TokenType::EqualEqual => &[OpCode::Equal],
+                    TokenType::GreaterEqual => &[OpCode::Less, OpCode::Not],
+                    TokenType::LessEqual => &[OpCode::Less, OpCode::Not],
+                    TokenType::BangEqual => &[OpCode::Equal, OpCode::Not],
                     _ => {
                         panic!("expected opcode for {op:?}")
                     }
                 };
-                self.chunk.add_code(opcode, op.span);
+                for code in opcodes.iter().cloned() {
+                    self.chunk.add_code(code, op.span.clone());
+                }
             } else {
                 break;
             }
@@ -127,6 +136,11 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
     let bp = match token_type {
         TokenType::Plus | TokenType::Minus => (5, 6),
         TokenType::Star | TokenType::Slash => (7, 8),
+        TokenType::EqualEqual
+        | TokenType::Less
+        | TokenType::LessEqual
+        | TokenType::Greater
+        | TokenType::GreaterEqual => (9, 10),
         _ => {
             return None;
         }

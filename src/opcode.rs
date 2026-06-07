@@ -1,4 +1,5 @@
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
 pub enum OpCode {
     Pass,
     Constant,
@@ -13,6 +14,9 @@ pub enum OpCode {
     True,
     False,
     Nil,
+    Equal,
+    Greater,
+    Less,
 }
 
 impl From<OpCode> for u8 {
@@ -37,6 +41,9 @@ impl From<u8> for OpCode {
             10 => True,
             11 => False,
             12 => Nil,
+            13 => Equal,
+            14 => Greater,
+            15 => Less,
             _ => Pass,
         }
     }

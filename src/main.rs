@@ -9,7 +9,7 @@ mod vm;
 fn main() {
     use compiler::compile;
 
-    let chunk = compile(r#" 25-5 "#);
+    let chunk = compile(r#" "hello" == "hello" "#);
     println!("{chunk}");
     let mut vm = VM::new(&chunk);
     let result = vm.run();

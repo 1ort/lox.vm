@@ -1,6 +1,6 @@
 use std::ops::{Add, Div, Mul, Neg, Not, Sub};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Number(f64),
     Str(String),
@@ -107,5 +107,26 @@ impl Not for Value {
     fn not(self) -> Self::Output {
         let x: bool = self.into();
         Ok(Bool(!x))
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
+            (Self::Str(l0), Self::Str(r0)) => l0 == r0,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Number(a), Number(b)) => a.partial_cmp(b),
+            (Str(a), Str(b)) => a.partial_cmp(b),
+            _ => None,
+        }
     }
 }

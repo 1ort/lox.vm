@@ -93,6 +93,17 @@ impl<'a> VM<'a> {
                 OpCode::True => self.push(true),
                 OpCode::False => self.push(false),
                 OpCode::Nil => self.push(Value::Nil),
+                OpCode::Equal | OpCode::Greater | OpCode::Less => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    let res = match opcode {
+                        OpCode::Equal => b == a,
+                        OpCode::Greater => b > a,
+                        OpCode::Less => b < a,
+                        _ => unreachable!(),
+                    };
+                    self.push(res);
+                }
             }
         }
         Ok(Value::Number(0.))
