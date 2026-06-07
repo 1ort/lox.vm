@@ -26,6 +26,7 @@ fn main() -> ExitCode {
 
 fn repl() -> ExitCode {
     let mut rl = DefaultEditor::new().expect("Can not start repl");
+    let mut vm = VM::new();
     let mut interner = Interner::new();
     loop {
         let readline = rl.readline(">> ");
@@ -34,8 +35,7 @@ fn repl() -> ExitCode {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
                 let chunk = compile(&line, &mut interner);
-                let mut vm = VM::new(&chunk, &mut interner);
-                let result = vm.run();
+                let result = vm.run(&chunk, &mut interner);
                 println!("{result:?}");
             }
             Err(ReadlineError::Interrupted) => {
