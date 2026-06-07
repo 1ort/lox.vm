@@ -86,7 +86,6 @@ impl<'a> Lexer<'a> {
             let span = tok_start..self.pos;
             TokenType::Number(&self.source[span])
         } else {
-            println!("{}", self.pos);
             TokenType::Number(integer_part)
         }
     }

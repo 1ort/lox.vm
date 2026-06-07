@@ -1,7 +1,7 @@
 use std::iter::Iterator;
 
 use crate::{
-    chunk::{Chunk, debug::format_instruction},
+    chunk::{self, Chunk, debug::format_instruction},
     opcode::OpCode,
     value::Value,
 };
@@ -26,6 +26,10 @@ impl<'a> VM<'a> {
         }
     }
 
+    pub fn set_chunk(&mut self, chunk: &'a Chunk) {
+        self.chunk = chunk
+    }
+
     pub fn reset(&mut self) {
         self.stack = Vec::with_capacity(STACK_MAX)
     }
@@ -36,7 +40,7 @@ impl<'a> VM<'a> {
 
         loop {
             let opcode: OpCode = if let Some((offset, byte)) = bytes.next() {
-                {
+                if false {
                     let stack = &self.stack;
                     println!("{stack:?}");
                     let mut s = String::default();
@@ -66,7 +70,6 @@ impl<'a> VM<'a> {
                 }
                 OpCode::Return => {
                     let val = self.pop();
-                    println!("{val:?}");
                     return Ok(val);
                 }
                 OpCode::Negate => {

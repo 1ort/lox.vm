@@ -26,6 +26,10 @@ impl<'a> Parser<'a> {
     fn compile(&mut self) {
         self.expression();
         let eof = self.tokens.next().expect("Expect EOF");
+        match eof.token_type {
+            TokenType::Eof => {}
+            _ => panic!("Expect EOF, got {eof:?}"),
+        }
         self.chunk.add_code(OpCode::Return, eof.span);
     }
 
@@ -76,9 +80,7 @@ impl<'a> Parser<'a> {
         }
         loop {
             let op = self.tokens.peek().expect("Expect token");
-            if matches!(op.token_type, TokenType::Eof) {
-                break;
-            } else if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
+            if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
                 if l_bp < min_bp {
                     break;
                 }
