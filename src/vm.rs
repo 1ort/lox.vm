@@ -201,14 +201,14 @@ mod tests {
 
     #[test]
     fn test_division() {
-        let chunk = chunk_with_binary_op(4., 16., OpCode::Divide);
+        let chunk = chunk_with_binary_op(16., 4., OpCode::Divide);
         let mut vm = VM::new(&chunk);
         assert!(vm.run().is_ok_and(|x| x == Value::Number(4.)));
     }
 
     #[test]
     fn test_division_by_zero() {
-        let chunk = chunk_with_binary_op(0., 16., OpCode::Divide);
+        let chunk = chunk_with_binary_op(16., 0., OpCode::Divide);
         let mut vm = VM::new(&chunk);
         assert!(vm.run().is_err_and(
             |err| matches!(err, ErrorKind::Runtime(err) if err.eq("Division by zero.")
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_subtraction() {
-        let chunk = chunk_with_binary_op(4., 16., OpCode::Subtract);
+        let chunk = chunk_with_binary_op(16., 4., OpCode::Subtract);
         let mut vm = VM::new(&chunk);
         assert!(vm.run().is_ok_and(|x| x == Value::Number(12.)));
     }
@@ -227,6 +227,12 @@ mod tests {
     fn test_multiple_operations() {
         let mut chunk = Chunk::new();
         let span = 0..1;
+        chunk.add_constant(5., span.clone());
+
+        chunk.add_constant(10., span.clone());
+        chunk.add_constant(9., span.clone());
+        chunk.add_code(OpCode::Subtract, span.clone());
+        // 10 - 9 = 1
         chunk.add_constant(3., span.clone());
         chunk.add_constant(4., span.clone());
         chunk.add_code(OpCode::Add, span.clone());
@@ -234,13 +240,8 @@ mod tests {
         chunk.add_constant(20., span.clone());
         chunk.add_code(OpCode::Multiply, span.clone());
         // 20 * 7 = 140
-        chunk.add_constant(9., span.clone());
-        chunk.add_constant(10., span.clone());
-        chunk.add_code(OpCode::Subtract, span.clone());
-        // 10 - 9 = 1
         chunk.add_code(OpCode::Divide, span.clone());
         // 1/140
-        chunk.add_constant(5., span.clone());
         chunk.add_code(OpCode::Divide, span.clone());
         // 5 / (1/140) == 700
         chunk.add_code(OpCode::Return, span.clone());
