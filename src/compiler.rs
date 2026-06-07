@@ -64,6 +64,7 @@ impl<'a> Parser<'a> {
                 });
                 let opcode = match token_type {
                     TokenType::Minus => OpCode::Negate,
+                    TokenType::Bang => OpCode::Not,
                     _ => {
                         panic!("expected opcode for {lhs:?}")
                     }
@@ -90,7 +91,6 @@ impl<'a> Parser<'a> {
                     TokenType::Star => &[OpCode::Multiply],
                     TokenType::Less => &[OpCode::Less],
                     TokenType::Greater => &[OpCode::Greater],
-                    TokenType::Bang => &[OpCode::Not],
                     TokenType::EqualEqual => &[OpCode::Equal],
                     TokenType::GreaterEqual => &[OpCode::Less, OpCode::Not],
                     TokenType::LessEqual => &[OpCode::Less, OpCode::Not],
@@ -127,7 +127,7 @@ impl<'a> Parser<'a> {
 
 fn prefix_binding_power(token_type: &TokenType) -> Option<((), u8)> {
     match token_type {
-        TokenType::Minus => Some(((), 9)),
+        TokenType::Minus | TokenType::Bang => Some(((), 9)),
         _ => None,
     }
 }
@@ -140,10 +140,53 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
         | TokenType::Less
         | TokenType::LessEqual
         | TokenType::Greater
-        | TokenType::GreaterEqual => (9, 10),
+        | TokenType::GreaterEqual
+        | TokenType::BangEqual => (3, 4),
         _ => {
             return None;
         }
     };
     Some(bp)
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::compile;
+    #[test]
+    fn test_parse_operators() {
+        let pairs = [
+            ("1 + 2 + 3", "(1 + 2) + 3"),
+            ("1 - 2 - 3", "(1 - 2) - 3"),
+            ("1 * 2 * 3", "(1 * 2) * 3"),
+            ("1 / 2 / 3", "(1 / 2) / 3"),
+            ("1 + 2 * 3", "1 + (2 * 3)"),
+            ("1 * 2 + 3", "(1 * 2) + 3"),
+            ("1 - 2 / 3", "1 - (2 / 3)"),
+            ("1 * 2 > 3", "(1 * 2) > 3"),
+            ("1 + 2 == 3", "(1 + 2) == 3"),
+            ("!1 * 2", "(!1) * 2"),
+            ("!1 + 2", "(!1) + 2"),
+            ("!1 > 2", "(!1) > 2"),
+            ("!!1", "!(!1)"),
+            ("1 - 2 + 3", "(1 - 2) + 3"),
+            ("1 * 2 / 3", "(1 * 2) / 3"),
+            ("1 > 2 + 3", "1 > (2 + 3)"),
+            ("1 != 2 * 3", "1 != (2 * 3)"),
+            ("1 * !2", "1 * (!2)"),
+            ("1 + 2 * 3 - 4 / 5", "1 + (2 * 3) - (4 / 5)"),
+            ("!1 + 2 * 3", "(!1) + (2 * 3)"),
+            ("1 - 2 - 3 - 4", "((1 - 2) - 3) - 4"),
+            ("1 + 2 > 3 + 4", "(1 + 2) > (3 + 4)"),
+            ("1 >= 2 + 3", "1 >= (2 + 3)"),
+            ("1 + 2 <= 3", "(1 + 2) <= 3"),
+            ("1 < 2 > 3", "(1 < 2) > 3"),
+        ];
+        for (index, &(left, right)) in pairs.iter().enumerate() {
+            let chunk_left = compile(left);
+            let chunk_right = compile(right);
+
+            assert_eq!(chunk_left.code, chunk_right.code, "case # {index}")
+        }
+    }
 }

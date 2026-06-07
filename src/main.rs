@@ -9,7 +9,7 @@ mod vm;
 fn main() {
     use compiler::compile;
 
-    let chunk = compile(r#" "hello" == "hello" "#);
+    let chunk = compile(r#"1*2>3"#);
     println!("{chunk}");
     let mut vm = VM::new(&chunk);
     let result = vm.run();
