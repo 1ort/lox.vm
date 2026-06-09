@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum OpCode {
     Pass,
     Constant,

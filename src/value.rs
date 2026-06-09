@@ -4,6 +4,7 @@ use std::{
 };
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Value {
     Number(f64),
     Str(Rc<str>),

@@ -131,21 +131,21 @@ impl<'a> Parser<'a> {
 
 fn prefix_binding_power(token_type: &TokenType) -> Option<((), u8)> {
     match token_type {
-        TokenType::Minus | TokenType::Bang => Some(((), 9)),
+        TokenType::Minus | TokenType::Bang => Some(((), 40)),
         _ => None,
     }
 }
 
 fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
     let bp = match token_type {
-        TokenType::Plus | TokenType::Minus => (5, 6),
-        TokenType::Star | TokenType::Slash => (7, 8),
+        TokenType::Star | TokenType::Slash => (29, 30),
+        TokenType::Plus | TokenType::Minus => (19, 20),
         TokenType::EqualEqual
         | TokenType::Less
         | TokenType::LessEqual
         | TokenType::Greater
         | TokenType::GreaterEqual
-        | TokenType::BangEqual => (3, 4),
+        | TokenType::BangEqual => (9, 10),
         _ => {
             return None;
         }
