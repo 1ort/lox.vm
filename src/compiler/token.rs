@@ -46,6 +46,7 @@ pub enum TokenType {
     True,
     While,
     Break,
+    // Invalid tokens
     Unknown,
     UnterminatedString,
 }

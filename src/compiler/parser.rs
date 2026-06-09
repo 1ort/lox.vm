@@ -29,7 +29,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn compile(&mut self) {
         self.expression();
-        let eof = self.tokens.next().expect("Expect EOF");
+        let eof = self.next();
         match eof.token_type {
             TokenType::Eof => {}
             _ => panic!("Expect EOF, got {eof:?}"),
@@ -45,8 +45,20 @@ impl<'a> Parser<'a> {
         &self.source[span.clone()]
     }
 
+    fn next(&mut self) -> Token {
+        self.tokens
+            .next()
+            .expect("iterator should not be exhausted")
+    }
+
+    fn peek(&mut self) -> &Token {
+        self.tokens
+            .peek()
+            .expect("iterator should not be exhausted")
+    }
+
     fn expr_bp(&mut self, min_bp: u8) {
-        let lhs = self.tokens.next().expect("Expect token.");
+        let lhs = self.next();
         match lhs.token_type {
             TokenType::Number => {
                 let lexeme = self.lexeme(&lhs.span);
@@ -89,12 +101,12 @@ impl<'a> Parser<'a> {
             _ => panic!("Bad token: {lhs:?}"),
         }
         loop {
-            let op = self.tokens.peek().expect("Expect token");
+            let op = self.peek();
             if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
                 if l_bp < min_bp {
                     break;
                 }
-                let op = self.tokens.next().expect("Expect token");
+                let op = self.next();
                 self.expr_bp(r_bp);
                 let opcodes: &[OpCode] = match op.token_type {
                     TokenType::Minus => &[OpCode::Subtract],
@@ -125,14 +137,13 @@ impl<'a> Parser<'a> {
         expected_token_type: &TokenType,
         message: &str,
     ) -> Result<(), String> {
-        match self.tokens.peek() {
-            Some(Token { token_type, .. })
-                if discriminant(expected_token_type) == discriminant(token_type) =>
+        if discriminant(expected_token_type) == discriminant(&self.peek().token_type) {
             {
-                self.tokens.next();
+                self.next();
                 Ok(())
             }
-            _ => Err(message.to_owned()),
+        } else {
+            Err(message.to_owned())
         }
     }
 }
