@@ -3,9 +3,10 @@ use super::token::Token;
 use crate::{
     chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode, value::Value,
 };
-use std::{iter::Peekable, mem::discriminant};
+use std::{iter::Peekable, mem::discriminant, ops::Range};
 
 pub(super) struct Parser<'a> {
+    source: &'a str,
     tokens: Peekable<Lexer<'a>>,
     chunk: &'a mut Chunk,
     interner: &'a mut Interner,
@@ -13,11 +14,13 @@ pub(super) struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub(super) fn new(
+        source: &'a str,
         tokens: Peekable<Lexer<'a>>,
         chunk: &'a mut Chunk,
         interner: &'a mut Interner,
     ) -> Self {
         Self {
+            source,
             tokens,
             chunk,
             interner,
@@ -38,15 +41,20 @@ impl<'a> Parser<'a> {
         self.expr_bp(0)
     }
 
+    fn lexeme(&self, span: &Range<usize>) -> &'a str {
+        &self.source[span.clone()]
+    }
+
     fn expr_bp(&mut self, min_bp: u8) {
         let lhs = self.tokens.next().expect("Expect token.");
         match lhs.token_type {
-            TokenType::Number(lexeme) => {
+            TokenType::Number => {
+                let lexeme = self.lexeme(&lhs.span);
                 let value: f64 = lexeme.parse().expect("Expect number literal");
                 self.chunk.add_constant(value, lhs.span.clone());
             }
-            TokenType::String(lexeme) => {
-                //let value: String = lexeme.to_string();
+            TokenType::String => {
+                let lexeme = self.lexeme(&lhs.span);
                 let value: Value = self.interner.intern(lexeme).into();
                 self.chunk.add_constant(value, lhs.span.clone());
             }

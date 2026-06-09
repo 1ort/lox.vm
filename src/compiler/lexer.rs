@@ -10,9 +10,9 @@ pub(super) struct Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token<'a>;
+    type Item = Token;
 
-    fn next(&mut self) -> Option<Token<'a>> {
+    fn next(&mut self) -> Option<Token> {
         if self.finished {
             return None;
         }
@@ -35,101 +35,96 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex(self: &mut Lexer<'a>) -> Token<'a> {
+    fn lex(self: &mut Lexer<'a>) -> Token {
         self.skip_spaces();
-
-        let tok_start = self.pos;
         if let Some(c) = self.peek_char() {
-            let token_type: TokenType<'a> = {
-                if c.is_ascii_digit() {
-                    self.lex_number()
-                } else if c == &'"' {
-                    self.lex_string()
-                } else if c.is_ascii_alphanumeric() || matches!(c, '_') {
-                    self.lex_keyword_or_identifier()
-                } else {
-                    self.lex_symbol()
-                }
-            };
-            match token_type {
-                TokenType::Unexpected(_) => Token {
-                    token_type,
-                    lexeme: "",
-                    span: tok_start..tok_start,
-                },
-                _ => {
-                    let span = tok_start..self.pos;
-                    Token {
-                        token_type,
-                        span: span.clone(),
-                        lexeme: &self.source[span],
-                    }
-                }
+            if c.is_ascii_digit() {
+                self.lex_number()
+            } else if c == &'"' {
+                self.lex_string()
+            } else if c.is_ascii_alphanumeric() || matches!(c, '_') {
+                self.lex_keyword_or_identifier()
+            } else {
+                self.lex_symbol()
             }
         } else {
             Token {
                 token_type: TokenType::Eof,
-                lexeme: "",
-                span: tok_start..tok_start,
+                span: self.pos..self.pos,
             }
         }
     }
 
-    fn lex_number(self: &mut Lexer<'a>) -> TokenType<'a> {
-        let tok_start = self.pos;
-        let integer_part = self.take_till(|c| c.is_ascii_digit());
+    fn lex_number(self: &mut Lexer<'a>) -> Token {
+        let token_start = self.pos;
+        self.take_till(|c| c.is_ascii_digit());
         if self.peek_char().is_some_and(|c| c == &'.')
             && self.peek_two_chars().is_some_and(|c| c.is_ascii_digit())
         {
             self.next_char();
             self.take_till(|c| c.is_ascii_digit());
-            let span = tok_start..self.pos;
-            TokenType::Number(&self.source[span])
-        } else {
-            TokenType::Number(integer_part)
+        }
+        Token {
+            token_type: TokenType::Number,
+            span: token_start..self.pos,
         }
     }
 
-    fn lex_string(self: &mut Lexer<'a>) -> TokenType<'a> {
+    fn lex_string(self: &mut Lexer<'a>) -> Token {
         self.next_char()
             .expect("should check that input is not empty");
-        let content = self.take_till(|c| c.ne(&'"') && c.ne(&'\n'));
+
+        let content_start = self.pos;
+        self.take_till(|c| c.ne(&'"') && c.ne(&'\n'));
+        let content_span = content_start..self.pos;
+
         if self.match_next_char('"') {
-            TokenType::String(content)
+            Token {
+                token_type: TokenType::String,
+                span: content_span,
+            }
         } else {
-            TokenType::Unexpected("Unterminated string.")
+            Token {
+                token_type: TokenType::UnterminatedString,
+                span: content_start..content_start,
+            }
         }
     }
 
-    fn lex_keyword_or_identifier(self: &mut Lexer<'a>) -> TokenType<'a> {
+    fn lex_keyword_or_identifier(self: &mut Lexer<'a>) -> Token {
+        let token_start = self.pos;
         let lexeme = self.take_till(|c| c.is_ascii_alphanumeric() || matches!(c, '_'));
-        match lexeme {
-            "print" => TokenType::Print,
-            "var" => TokenType::Var,
-            "and" => TokenType::And,
-            "class" => TokenType::Class,
-            "else" => TokenType::Else,
-            "false" => TokenType::False,
-            "fun" => TokenType::Fun,
-            "for" => TokenType::For,
-            "if" => TokenType::If,
-            "nil" => TokenType::Nil,
-            "or" => TokenType::Or,
-            "return" => TokenType::Return,
-            "super" => TokenType::Super,
-            "this" => TokenType::This,
-            "true" => TokenType::True,
-            "while" => TokenType::While,
-            "break" => TokenType::Break,
-            _ => TokenType::Identifier(lexeme),
+        Token {
+            token_type: match lexeme {
+                "print" => TokenType::Print,
+                "var" => TokenType::Var,
+                "and" => TokenType::And,
+                "class" => TokenType::Class,
+                "else" => TokenType::Else,
+                "false" => TokenType::False,
+                "fun" => TokenType::Fun,
+                "for" => TokenType::For,
+                "if" => TokenType::If,
+                "nil" => TokenType::Nil,
+                "or" => TokenType::Or,
+                "return" => TokenType::Return,
+                "super" => TokenType::Super,
+                "this" => TokenType::This,
+                "true" => TokenType::True,
+                "while" => TokenType::While,
+                "break" => TokenType::Break,
+                _ => TokenType::Identifier,
+            },
+            span: token_start..self.pos,
         }
     }
 
-    fn lex_symbol(self: &mut Lexer<'a>) -> TokenType<'a> {
+    fn lex_symbol(self: &mut Lexer<'a>) -> Token {
+        let token_start = self.pos;
         let c = self
             .next_char()
             .expect("should check that input is not empty");
-        match c {
+        let token_type = match c {
             '(' => TokenType::LeftParen,
             ')' => TokenType::RightParen,
             '{' => TokenType::LeftBrace,
@@ -170,13 +165,18 @@ impl<'a> Lexer<'a> {
             }
             '/' => {
                 if self.match_next_char('/') {
-                    let lexeme = self.take_till(|c| c.ne(&'\n'));
-                    TokenType::Comment(lexeme)
+                    self.take_till(|c| c.ne(&'\n'));
+                    return self.lex();
                 } else {
                     TokenType::Slash
                 }
             }
             _ => TokenType::Unknown,
+        };
+
+        Token {
+            token_type,
+            span: token_start..self.pos,
         }
     }
 

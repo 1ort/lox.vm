@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum TokenType<'a> {
+pub enum TokenType {
     Eof,
     // Single-character tokens.
     LeftParen,
@@ -25,9 +25,9 @@ pub enum TokenType<'a> {
     Less,
     LessEqual,
     // Literals.
-    String(&'a str),
-    Number(&'a str),
-    Identifier(&'a str),
+    String,
+    Number,
+    Identifier,
     // Keywords.
     Print,
     Var,
@@ -46,14 +46,12 @@ pub enum TokenType<'a> {
     True,
     While,
     Break,
-    Unexpected(&'a str),
     Unknown,
-    Comment(&'a str),
+    UnterminatedString,
 }
 
 #[derive(Debug, Clone)]
-pub struct Token<'a> {
-    pub token_type: TokenType<'a>,
-    pub lexeme: &'a str,
+pub struct Token {
+    pub token_type: TokenType,
     pub span: Range<usize>,
 }
