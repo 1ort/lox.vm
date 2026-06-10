@@ -33,28 +33,59 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn compile(&mut self) -> Result<(), SyntaxError> {
+    pub(super) fn compile(mut self) -> Result<(), Vec<SyntaxError>> {
+        let mut errors: Vec<SyntaxError> = Vec::new();
+
         loop {
             let next = self.peek();
             if matches!(next.token_type, TokenType::Eof) {
-                //let eof = self.next();
-                //self.chunk.add_code(OpCode::Return, eof.span);
                 break;
             }
-
-            self.declaration()?;
+            if let Err(err) = self.declaration() {
+                errors.push(err);
+                self.synchronize();
+            }
         }
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     fn lexeme(&self, span: &Range<usize>) -> &'a str {
         &self.source[span.clone()]
     }
 
-    fn next(&mut self) -> Token {
-        self.tokens
+    fn next(&mut self) -> Result<Token, SyntaxError> {
+        match self
+            .tokens
             .next()
             .expect("iterator should not be exhausted")
+        {
+            Token {
+                token_type: TokenType::UnterminatedString,
+                span,
+            } => Err(SyntaxError {
+                message: "Unterminated string".to_owned(),
+                span,
+            }),
+            Token {
+                token_type: TokenType::Unknown,
+                span,
+            } => Err(SyntaxError {
+                message: "Unknown token".to_owned(),
+                span,
+            }),
+            Token {
+                token_type: TokenType::Eof,
+                span,
+            } => Err(SyntaxError {
+                message: "Unexpected EOF".to_owned(),
+                span,
+            }),
+            tok => Ok(tok),
+        }
     }
 
     fn peek(&mut self) -> &Token {
@@ -63,23 +94,46 @@ impl<'a> Parser<'a> {
             .expect("iterator should not be exhausted")
     }
 
-    fn match_token(&mut self, token_type: TokenType) -> Option<Token> {
-        if discriminant(&token_type) == discriminant(&self.peek().token_type) {
-            Some(self.next())
-        } else {
-            None
-        }
-    }
-
     fn expect_token(
         &mut self,
         expected_token_type: TokenType,
         message: &str,
     ) -> Result<Token, SyntaxError> {
-        self.match_token(expected_token_type).ok_or(SyntaxError {
-            message: message.to_owned(),
-            span: self.peek().span.clone(),
-        })
+        if discriminant(&expected_token_type) == discriminant(&self.peek().token_type) {
+            self.next()
+        } else {
+            Err(SyntaxError {
+                message: message.to_owned(),
+                span: self.peek().span.clone(),
+            })
+        }
+    }
+
+    fn synchronize(&mut self) {
+        if self.tokens.peek().is_none() {
+            return;
+        }
+
+        loop {
+            match self.peek().token_type {
+                TokenType::Semicolon => {
+                    let _ = self.next();
+                    break;
+                }
+                TokenType::Eof
+                | TokenType::Class
+                | TokenType::Var
+                | TokenType::Fun
+                | TokenType::Print
+                | TokenType::Return
+                | TokenType::For
+                | TokenType::While
+                | TokenType::If => break,
+                _ => {
+                    let _ = self.next();
+                }
+            }
+        }
     }
 
     fn declaration(&mut self) -> Result<(), SyntaxError> {
@@ -94,10 +148,10 @@ impl<'a> Parser<'a> {
     }
 
     fn print_statement(&mut self) -> Result<(), SyntaxError> {
-        let span = self.next().span;
+        let next = self.next()?;
         self.expression()?;
         self.expect_token(TokenType::Semicolon, "Expect ';' after value.")?;
-        self.chunk.add_code(OpCode::Print, span);
+        self.chunk.add_code(OpCode::Print, next.span);
         Ok(())
     }
 

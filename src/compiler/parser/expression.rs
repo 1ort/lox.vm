@@ -1,5 +1,6 @@
 use super::Parser;
 use super::SyntaxError;
+use crate::compiler::token;
 use crate::compiler::token::TokenType;
 use crate::opcode::OpCode;
 use crate::value::Value;
@@ -34,52 +35,65 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn expr_bp(&mut self, min_bp: u8) -> Result<(), SyntaxError> {
-        let lhs = self.next();
-        match lhs.token_type {
+        match self.peek().token_type.clone() {
             TokenType::Number => {
-                let lexeme = self.lexeme(&lhs.span);
+                let span = self.next()?.span;
+                let lexeme = self.lexeme(&span);
                 let value: f64 = lexeme.parse().map_err(|err| SyntaxError {
                     message: format!("Can not parse number: {err}."),
-                    span: lhs.span.clone(),
+                    span: span.clone(),
                 })?;
-                self.chunk.add_constant(value, lhs.span.clone());
+                self.chunk.add_constant(value, span);
             }
             TokenType::String => {
-                let lexeme = self.lexeme(&lhs.span);
+                let span = self.next()?.span;
+                let lexeme = self.lexeme(&span);
                 let value: Value = self.interner.intern(lexeme).into();
-                self.chunk.add_constant(value, lhs.span.clone());
+                self.chunk.add_constant(value, span);
+            }
+            TokenType::UnterminatedString => {
+                let span = self.peek().span.clone();
+                return Err(SyntaxError {
+                    message: "Unterminated string".to_owned(),
+                    span,
+                });
             }
             TokenType::True => {
-                self.chunk.add_code(OpCode::True, lhs.span.clone());
+                let span = self.next()?.span;
+                self.chunk.add_code(OpCode::True, span);
             }
             TokenType::False => {
-                self.chunk.add_code(OpCode::False, lhs.span.clone());
+                let span = self.next()?.span;
+                self.chunk.add_code(OpCode::False, span);
             }
             TokenType::Nil => {
-                self.chunk.add_code(OpCode::Nil, lhs.span.clone());
+                let span = self.next()?.span;
+                self.chunk.add_code(OpCode::Nil, span);
             }
             TokenType::LeftParen => {
+                let _ = self.next();
                 self.expr_bp(0)?;
                 self.expect_token(TokenType::RightParen, "Expect ')' after expression.")?;
             }
-            ref token_type @ (TokenType::Minus | TokenType::Bang) => {
-                let (_, r_bp) = prefix_binding_power(token_type).unwrap_or_else(|| {
-                    panic!("expected binding power for {token_type:?}");
-                });
-                let opcode = match token_type {
+            TokenType::Minus | TokenType::Bang => {
+                let token = self.next()?;
+                let (_, r_bp) = prefix_binding_power(&token.token_type)
+                    .expect("should be binding power for prefix op");
+                let opcode = match token.token_type {
                     TokenType::Minus => OpCode::Negate,
                     TokenType::Bang => OpCode::Not,
                     _ => {
-                        panic!("expected opcode for {lhs:?}")
+                        panic!("expected opcode for {token:?}")
                     }
                 };
                 self.expr_bp(r_bp)?;
-                self.chunk.add_code(opcode, lhs.span);
+                self.chunk.add_code(opcode, token.span);
             }
             _ => {
+                let span = self.peek().span.clone();
                 return Err(SyntaxError {
-                    message: "Unexpected token".to_owned(),
-                    span: lhs.span,
+                    message: "Expected expression".to_owned(),
+                    span,
                 });
             }
         }
@@ -89,7 +103,7 @@ impl<'a> Parser<'a> {
                 if l_bp < min_bp {
                     break;
                 }
-                let op = self.next();
+                let op = self.next()?;
                 self.expr_bp(r_bp)?;
                 let opcodes: &[OpCode] = match op.token_type {
                     TokenType::Minus => &[OpCode::Subtract],
