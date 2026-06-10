@@ -5,6 +5,12 @@ use crate::{
 };
 use std::{iter::Peekable, mem::discriminant, ops::Range};
 
+#[derive(Debug)]
+pub struct SyntaxError {
+    message: String,
+    span: Range<usize>,
+}
+
 pub(super) struct Parser<'a> {
     source: &'a str,
     tokens: Peekable<Lexer<'a>>,
@@ -27,17 +33,23 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn compile(&mut self) {
-        self.expression();
+    pub(super) fn compile(&mut self) -> Result<(), SyntaxError> {
+        self.expression()?;
         let eof = self.next();
         match eof.token_type {
             TokenType::Eof => {}
-            _ => panic!("Expect EOF, got {eof:?}"),
+            _ => {
+                return Err(SyntaxError {
+                    message: "Unexpected_token.".to_owned(),
+                    span: eof.span,
+                });
+            }
         }
         self.chunk.add_code(OpCode::Return, eof.span);
+        Ok(())
     }
 
-    fn expression(&mut self) {
+    fn expression(&mut self) -> Result<(), SyntaxError> {
         self.expr_bp(0)
     }
 
@@ -57,12 +69,15 @@ impl<'a> Parser<'a> {
             .expect("iterator should not be exhausted")
     }
 
-    fn expr_bp(&mut self, min_bp: u8) {
+    fn expr_bp(&mut self, min_bp: u8) -> Result<(), SyntaxError> {
         let lhs = self.next();
         match lhs.token_type {
             TokenType::Number => {
                 let lexeme = self.lexeme(&lhs.span);
-                let value: f64 = lexeme.parse().expect("Expect number literal");
+                let value: f64 = lexeme.parse().map_err(|err| SyntaxError {
+                    message: format!("Can not parse number: {err}."),
+                    span: lhs.span.clone(),
+                })?;
                 self.chunk.add_constant(value, lhs.span.clone());
             }
             TokenType::String => {
@@ -80,9 +95,8 @@ impl<'a> Parser<'a> {
                 self.chunk.add_code(OpCode::Nil, lhs.span.clone());
             }
             TokenType::LeftParen => {
-                self.expr_bp(0);
-                self.expect_token(&TokenType::RightParen, "Expect ')' after expression.")
-                    .expect("expect )");
+                self.expr_bp(0)?;
+                self.expect_token(&TokenType::RightParen, "Expect ')' after expression.")?;
             }
             ref token_type @ (TokenType::Minus | TokenType::Bang) => {
                 let (_, r_bp) = prefix_binding_power(token_type).unwrap_or_else(|| {
@@ -95,10 +109,15 @@ impl<'a> Parser<'a> {
                         panic!("expected opcode for {lhs:?}")
                     }
                 };
-                self.expr_bp(r_bp);
+                self.expr_bp(r_bp)?;
                 self.chunk.add_code(opcode, lhs.span);
             }
-            _ => panic!("Bad token: {lhs:?}"),
+            _ => {
+                return Err(SyntaxError {
+                    message: "Unexpected token".to_owned(),
+                    span: lhs.span,
+                });
+            }
         }
         loop {
             let op = self.peek();
@@ -107,7 +126,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 let op = self.next();
-                self.expr_bp(r_bp);
+                self.expr_bp(r_bp)?;
                 let opcodes: &[OpCode] = match op.token_type {
                     TokenType::Minus => &[OpCode::Subtract],
                     TokenType::Plus => &[OpCode::Add],
@@ -130,20 +149,25 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
+
+        Ok(())
     }
 
     fn expect_token(
         &mut self,
         expected_token_type: &TokenType,
         message: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), SyntaxError> {
         if discriminant(expected_token_type) == discriminant(&self.peek().token_type) {
             {
                 self.next();
                 Ok(())
             }
         } else {
-            Err(message.to_owned())
+            Err(SyntaxError {
+                message: message.to_owned(),
+                span: self.peek().span.clone(),
+            })
         }
     }
 }

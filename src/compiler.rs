@@ -10,7 +10,7 @@ pub fn compile(source: &str, interner: &mut Interner) -> Chunk {
     let lexer = Lexer::new(source);
     let mut chunk = Chunk::new();
     let mut parser = Parser::new(source, lexer.peekable(), &mut chunk, interner);
-    parser.compile();
+    parser.compile().expect("");
     chunk
 }
 
