@@ -10,9 +10,7 @@ use crate::{
 const STACK_MAX: usize = 256;
 
 #[derive(Debug)]
-pub enum ErrorKind {
-    Runtime(String),
-}
+pub struct RuntimeError(String);
 
 pub struct VM {
     stack: Vec<Value>, // TODO: store &Value directly to top of stack
@@ -35,7 +33,7 @@ impl<'a> VM {
         self.stack = Vec::with_capacity(STACK_MAX)
     }
 
-    pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, ErrorKind> {
+    pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, RuntimeError> {
         self.reset();
 
         let mut bytes = chunk.iter_code().enumerate();
@@ -76,11 +74,11 @@ impl<'a> VM {
                     return Ok(val);
                 }
                 OpCode::Negate => {
-                    let val = (-self.pop()).map_err(ErrorKind::Runtime)?;
+                    let val = (-self.pop()).map_err(RuntimeError)?;
                     self.push(val);
                 }
                 OpCode::Not => {
-                    let val = (!self.pop()).map_err(ErrorKind::Runtime)?;
+                    let val = (!self.pop()).map_err(RuntimeError)?;
                     self.push(val);
                 }
                 OpCode::Add | OpCode::Subtract | OpCode::Multiply | OpCode::Divide => {
@@ -93,7 +91,7 @@ impl<'a> VM {
                         OpCode::Divide => b / a,
                         _ => unreachable!(),
                     }
-                    .map_err(ErrorKind::Runtime)?;
+                    .map_err(RuntimeError)?;
                     self.push(res);
                 }
                 OpCode::True => self.push(true),
@@ -112,7 +110,10 @@ impl<'a> VM {
                 }
                 OpCode::Print => {
                     let value = self.pop();
-                    println!("{value}")
+                    println!("{value}");
+                }
+                OpCode::Pop => {
+                    self.pop();
                 }
             }
         }
@@ -247,7 +248,7 @@ mod tests {
         let mut interner = Interner::new();
         let mut vm = VM::new();
         assert!(vm.run(&chunk, &mut interner).is_err_and(
-            |err| matches!(err, ErrorKind::Runtime(err) if err.eq("Division by zero.")
+            |err| matches!(err, RuntimeError(err) if err.eq("Division by zero.")
             )
         ))
     }

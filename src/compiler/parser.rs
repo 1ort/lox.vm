@@ -37,13 +37,13 @@ impl<'a> Parser<'a> {
         loop {
             let next = self.peek();
             if matches!(next.token_type, TokenType::Eof) {
+                //let eof = self.next();
+                //self.chunk.add_code(OpCode::Return, eof.span);
                 break;
             }
 
-            self.declaration();
+            self.declaration()?;
         }
-        let eof = self.next();
-        self.chunk.add_code(OpCode::Return, eof.span);
         Ok(())
     }
 
@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<(), SyntaxError> {
         match self.peek().token_type {
             TokenType::Print => self.print_statement(),
-            _ => Ok(()),
+            _ => self.expression_statement(),
         }
     }
 
@@ -98,6 +98,15 @@ impl<'a> Parser<'a> {
         self.expression()?;
         self.expect_token(TokenType::Semicolon, "Expect ';' after value.")?;
         self.chunk.add_code(OpCode::Print, span);
+        Ok(())
+    }
+
+    fn expression_statement(&mut self) -> Result<(), SyntaxError> {
+        self.expression()?;
+        let span = self
+            .expect_token(TokenType::Semicolon, "Expect ';' after value.")?
+            .span;
+        self.chunk.add_code(OpCode::Pop, span);
         Ok(())
     }
 }

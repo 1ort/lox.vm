@@ -19,6 +19,7 @@ pub enum OpCode {
     Greater,
     Less,
     Print,
+    Pop,
 }
 
 impl From<OpCode> for u8 {
@@ -46,6 +47,8 @@ impl From<u8> for OpCode {
             13 => Equal,
             14 => Greater,
             15 => Less,
+            16 => Print,
+            17 => Pop,
             _ => Pass,
         }
     }
