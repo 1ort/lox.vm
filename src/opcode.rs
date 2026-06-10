@@ -18,6 +18,7 @@ pub enum OpCode {
     Equal,
     Greater,
     Less,
+    Print,
 }
 
 impl From<OpCode> for u8 {

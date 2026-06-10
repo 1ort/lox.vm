@@ -12,6 +12,17 @@ pub enum Value {
     Nil,
 }
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Number(val) => write!(f, "{val}"),
+            Str(val) => write!(f, "{}", val.as_ref()),
+            Bool(val) => write!(f, "{val}"),
+            Nil => write!(f, "nil"),
+        }
+    }
+}
+
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
         Self::Number(value)

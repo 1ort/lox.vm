@@ -110,6 +110,10 @@ impl<'a> VM {
                     };
                     self.push(res);
                 }
+                OpCode::Print => {
+                    let value = self.pop();
+                    println!("{value}")
+                }
             }
         }
         Ok(Value::Number(0.))

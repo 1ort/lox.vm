@@ -1,9 +1,9 @@
 use super::lexer::Lexer;
 use super::token::Token;
-use crate::{
-    chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode, value::Value,
-};
+use crate::{chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode};
 use std::{iter::Peekable, mem::discriminant, ops::Range};
+
+mod expression;
 
 #[derive(Debug)]
 pub struct SyntaxError {
@@ -34,23 +34,17 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn compile(&mut self) -> Result<(), SyntaxError> {
-        self.expression()?;
-        let eof = self.next();
-        match eof.token_type {
-            TokenType::Eof => {}
-            _ => {
-                return Err(SyntaxError {
-                    message: "Unexpected_token.".to_owned(),
-                    span: eof.span,
-                });
+        loop {
+            let next = self.peek();
+            if matches!(next.token_type, TokenType::Eof) {
+                break;
             }
+
+            self.declaration();
         }
+        let eof = self.next();
         self.chunk.add_code(OpCode::Return, eof.span);
         Ok(())
-    }
-
-    fn expression(&mut self) -> Result<(), SyntaxError> {
-        self.expr_bp(0)
     }
 
     fn lexeme(&self, span: &Range<usize>) -> &'a str {
@@ -69,129 +63,41 @@ impl<'a> Parser<'a> {
             .expect("iterator should not be exhausted")
     }
 
-    fn expr_bp(&mut self, min_bp: u8) -> Result<(), SyntaxError> {
-        let lhs = self.next();
-        match lhs.token_type {
-            TokenType::Number => {
-                let lexeme = self.lexeme(&lhs.span);
-                let value: f64 = lexeme.parse().map_err(|err| SyntaxError {
-                    message: format!("Can not parse number: {err}."),
-                    span: lhs.span.clone(),
-                })?;
-                self.chunk.add_constant(value, lhs.span.clone());
-            }
-            TokenType::String => {
-                let lexeme = self.lexeme(&lhs.span);
-                let value: Value = self.interner.intern(lexeme).into();
-                self.chunk.add_constant(value, lhs.span.clone());
-            }
-            TokenType::True => {
-                self.chunk.add_code(OpCode::True, lhs.span.clone());
-            }
-            TokenType::False => {
-                self.chunk.add_code(OpCode::False, lhs.span.clone());
-            }
-            TokenType::Nil => {
-                self.chunk.add_code(OpCode::Nil, lhs.span.clone());
-            }
-            TokenType::LeftParen => {
-                self.expr_bp(0)?;
-                self.expect_token(&TokenType::RightParen, "Expect ')' after expression.")?;
-            }
-            ref token_type @ (TokenType::Minus | TokenType::Bang) => {
-                let (_, r_bp) = prefix_binding_power(token_type).unwrap_or_else(|| {
-                    panic!("expected binding power for {token_type:?}");
-                });
-                let opcode = match token_type {
-                    TokenType::Minus => OpCode::Negate,
-                    TokenType::Bang => OpCode::Not,
-                    _ => {
-                        panic!("expected opcode for {lhs:?}")
-                    }
-                };
-                self.expr_bp(r_bp)?;
-                self.chunk.add_code(opcode, lhs.span);
-            }
-            _ => {
-                return Err(SyntaxError {
-                    message: "Unexpected token".to_owned(),
-                    span: lhs.span,
-                });
-            }
+    fn match_token(&mut self, token_type: TokenType) -> Option<Token> {
+        if discriminant(&token_type) == discriminant(&self.peek().token_type) {
+            Some(self.next())
+        } else {
+            None
         }
-        loop {
-            let op = self.peek();
-            if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
-                if l_bp < min_bp {
-                    break;
-                }
-                let op = self.next();
-                self.expr_bp(r_bp)?;
-                let opcodes: &[OpCode] = match op.token_type {
-                    TokenType::Minus => &[OpCode::Subtract],
-                    TokenType::Plus => &[OpCode::Add],
-                    TokenType::Slash => &[OpCode::Divide],
-                    TokenType::Star => &[OpCode::Multiply],
-                    TokenType::Less => &[OpCode::Less],
-                    TokenType::Greater => &[OpCode::Greater],
-                    TokenType::EqualEqual => &[OpCode::Equal],
-                    TokenType::GreaterEqual => &[OpCode::Less, OpCode::Not],
-                    TokenType::LessEqual => &[OpCode::Less, OpCode::Not],
-                    TokenType::BangEqual => &[OpCode::Equal, OpCode::Not],
-                    _ => {
-                        panic!("expected opcode for {op:?}")
-                    }
-                };
-                for code in opcodes.iter().cloned() {
-                    self.chunk.add_code(code, op.span.clone());
-                }
-            } else {
-                break;
-            }
-        }
-
-        Ok(())
     }
 
     fn expect_token(
         &mut self,
-        expected_token_type: &TokenType,
+        expected_token_type: TokenType,
         message: &str,
-    ) -> Result<(), SyntaxError> {
-        if discriminant(expected_token_type) == discriminant(&self.peek().token_type) {
-            {
-                self.next();
-                Ok(())
-            }
-        } else {
-            Err(SyntaxError {
-                message: message.to_owned(),
-                span: self.peek().span.clone(),
-            })
+    ) -> Result<Token, SyntaxError> {
+        self.match_token(expected_token_type).ok_or(SyntaxError {
+            message: message.to_owned(),
+            span: self.peek().span.clone(),
+        })
+    }
+
+    fn declaration(&mut self) -> Result<(), SyntaxError> {
+        self.statement()
+    }
+
+    fn statement(&mut self) -> Result<(), SyntaxError> {
+        match self.peek().token_type {
+            TokenType::Print => self.print_statement(),
+            _ => Ok(()),
         }
     }
-}
 
-fn prefix_binding_power(token_type: &TokenType) -> Option<((), u8)> {
-    match token_type {
-        TokenType::Minus | TokenType::Bang => Some(((), 40)),
-        _ => None,
+    fn print_statement(&mut self) -> Result<(), SyntaxError> {
+        let span = self.next().span;
+        self.expression()?;
+        self.expect_token(TokenType::Semicolon, "Expect ';' after value.")?;
+        self.chunk.add_code(OpCode::Print, span);
+        Ok(())
     }
-}
-
-fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
-    let bp = match token_type {
-        TokenType::Star | TokenType::Slash => (29, 30),
-        TokenType::Plus | TokenType::Minus => (19, 20),
-        TokenType::EqualEqual
-        | TokenType::Less
-        | TokenType::LessEqual
-        | TokenType::Greater
-        | TokenType::GreaterEqual
-        | TokenType::BangEqual => (9, 10),
-        _ => {
-            return None;
-        }
-    };
-    Some(bp)
 }
