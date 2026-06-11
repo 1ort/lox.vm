@@ -2,16 +2,16 @@ mod lexer;
 mod parser;
 mod token;
 
-use crate::{chunk::Chunk, interner::Interner};
+use crate::{chunk::Chunk, compiler::parser::SyntaxError, interner::Interner};
 use lexer::Lexer;
 use parser::Parser;
 
-pub fn compile(source: &str, interner: &mut Interner) -> Chunk {
+pub fn compile(source: &str, interner: &mut Interner) -> Result<Chunk, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
     let mut chunk = Chunk::new();
     let parser = Parser::new(source, lexer.peekable(), &mut chunk, interner);
-    parser.compile().unwrap();
-    chunk
+    parser.compile()?;
+    Ok(chunk)
 }
 
 #[cfg(test)]
@@ -48,8 +48,8 @@ mod test {
             ("1 < 2 > 3;", "(1 < 2) > 3;"),
         ];
         for (index, &(left, right)) in pairs.iter().enumerate() {
-            let chunk_left = compile(left, &mut Interner::default());
-            let chunk_right = compile(right, &mut Interner::default());
+            let chunk_left = compile(left, &mut Interner::default()).unwrap();
+            let chunk_right = compile(right, &mut Interner::default()).unwrap();
 
             assert_eq!(chunk_left.code, chunk_right.code, "case # {index}")
         }

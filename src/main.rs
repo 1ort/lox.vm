@@ -35,8 +35,20 @@ fn repl() -> ExitCode {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
                 let chunk = compile(&line, &mut interner);
-                let result = vm.run(&chunk);
-                println!("{result:?}");
+                if let Err(errors) = chunk {
+                    for error in errors {
+                        // TODO: add error formatter
+                        eprintln!("{error:?}");
+                    }
+                    continue;
+                }
+                let chunk = chunk.expect("Chunk should be checked");
+                let result = vm.run(&chunk, &mut interner);
+                match result {
+                    Ok(value) if !value.is_nil() => println!("{value}"),
+                    Err(error) => eprint!("{error:?}"),
+                    _ => {}
+                }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
