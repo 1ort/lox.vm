@@ -1,15 +1,10 @@
+use crate::{chunk::Chunk, opcode::OpCode, value::Value};
 use std::{collections::HashMap, iter::Iterator, rc::Rc};
-
-use crate::{
-    chunk::{Chunk, debug::format_instruction},
-    interner::Interner,
-    opcode::OpCode,
-    value::Value,
-};
 
 const STACK_MAX: usize = 256;
 
 #[derive(Debug)]
+#[expect(unused)]
 pub struct RuntimeError(String);
 
 pub struct VM {
@@ -35,24 +30,18 @@ impl<'a> VM {
         self.stack = Vec::with_capacity(STACK_MAX)
     }
 
-    pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, RuntimeError> {
+    pub fn run(&mut self, chunk: &Chunk) -> Result<Value, RuntimeError> {
         self.reset();
         let mut bytes = chunk.iter_code().enumerate();
-        if true {
+
+        if cfg!(feature = "debug_vm") {
             println!("===chunk===");
             print!("{}", chunk);
-            println!("===chunk===");
+            println!("===========");
         }
+
         loop {
-            let opcode: OpCode = if let Some((offset, byte)) = bytes.next() {
-                if true {
-                    // TODO: use compile-flag
-                    let stack = &self.stack;
-                    println!("{:?}", &stack);
-                    //let mut s = String::default();
-                    // format_instruction(chunk, offset, &mut s);
-                    // println!("{s}");
-                }
+            let opcode: OpCode = if let Some((_, byte)) = bytes.next() {
                 *byte
             } else {
                 break;
@@ -149,6 +138,11 @@ impl<'a> VM {
                     self.push(value.clone());
                 }
             }
+
+            if cfg!(feature = "debug_vm") {
+                let stack = &self.stack;
+                println!("{:?}", &stack);
+            }
         }
         Ok(Value::Number(0.))
     }
@@ -196,23 +190,15 @@ mod tests {
     #[test]
     fn test_empty_chunk() {
         let chunk = Chunk::new();
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(0.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(0.)));
     }
 
     #[test]
     fn test_constant() {
         let chunk = chunk_with_constant(42.);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(42.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(42.)));
     }
 
     #[test]
@@ -220,23 +206,15 @@ mod tests {
         let mut chunk = Chunk::new();
         chunk.add_const_long(20., 0..0);
         chunk.add_code(OpCode::Return, 0..0);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(20.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(20.)));
     }
 
     #[test]
     fn test_addition() {
         let chunk = chunk_with_binary_op(5.0, 3.0, OpCode::Add);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(8.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(8.)));
     }
 
     #[test]
@@ -245,42 +223,29 @@ mod tests {
         chunk.add_constant(10., 0..0);
         chunk.add_code(OpCode::Negate, 0..0);
         chunk.add_code(OpCode::Return, 0..0);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(-10.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(-10.)));
     }
 
     #[test]
     fn test_multiplication() {
         let chunk = chunk_with_binary_op(2., 4.0, OpCode::Multiply);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(8.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(8.)));
     }
 
     #[test]
     fn test_division() {
         let chunk = chunk_with_binary_op(16., 4., OpCode::Divide);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(4.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(4.)));
     }
 
     #[test]
     fn test_division_by_zero() {
         let chunk = chunk_with_binary_op(16., 0., OpCode::Divide);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(vm.run(&chunk, &mut interner).is_err_and(
+        assert!(vm.run(&chunk).is_err_and(
             |err| matches!(err, RuntimeError(err) if err.eq("Division by zero.")
             )
         ))
@@ -289,12 +254,8 @@ mod tests {
     #[test]
     fn test_subtraction() {
         let chunk = chunk_with_binary_op(16., 4., OpCode::Subtract);
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(12.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(12.)));
     }
 
     #[test]
@@ -320,11 +281,7 @@ mod tests {
         // 5 / (1/140) == 700
         chunk.add_code(OpCode::Return, span.clone());
 
-        let mut interner = Interner::new();
         let mut vm = VM::new();
-        assert!(
-            vm.run(&chunk, &mut interner)
-                .is_ok_and(|x| x == Value::Number(700.))
-        );
+        assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(700.)));
     }
 }

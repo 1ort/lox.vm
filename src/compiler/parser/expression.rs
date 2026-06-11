@@ -1,6 +1,5 @@
 use super::Parser;
 use super::SyntaxError;
-use crate::compiler::token;
 use crate::compiler::token::TokenType;
 use crate::opcode::OpCode;
 use crate::value::Value;

@@ -7,7 +7,9 @@ mod expression;
 
 #[derive(Debug)]
 pub struct SyntaxError {
+    #[expect(unused)]
     message: String,
+    #[expect(unused)]
     span: Range<usize>,
 }
 

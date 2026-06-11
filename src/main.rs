@@ -35,7 +35,7 @@ fn repl() -> ExitCode {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
                 let chunk = compile(&line, &mut interner);
-                let result = vm.run(&chunk, &mut interner);
+                let result = vm.run(&chunk);
                 println!("{result:?}");
             }
             Err(ReadlineError::Interrupted) => {
@@ -59,6 +59,6 @@ fn incorrect_usage() -> ExitCode {
     ExitCode::from(64)
 }
 
-fn run_file(path: &std::ffi::OsString) -> ExitCode {
+fn run_file(_path: &std::ffi::OsString) -> ExitCode {
     todo!()
 }
