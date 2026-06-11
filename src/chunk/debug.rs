@@ -19,9 +19,8 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
 
     let instruction: OpCode = chunk.code[offset].into();
     match instruction {
-        Constant => constant_instruction(instruction, chunk, offset, f),
-        ConstLong | DefineGlobal | GetGlobal | SetGlobal => {
-            constlong_instruction(instruction, chunk, offset, f)
+        Constant | DefineGlobal | GetGlobal | SetGlobal => {
+            constant_instruction(instruction, chunk, offset, f)
         }
         _ => simple_instruction(instruction, offset, f),
     }
@@ -34,19 +33,6 @@ fn simple_instruction(instruction: OpCode, offset: usize, f: &mut impl Write) ->
 }
 
 fn constant_instruction(
-    instruction: OpCode,
-    chunk: &Chunk,
-    offset: usize,
-    f: &mut impl Write,
-) -> usize {
-    let const_index = chunk.code[offset + 1];
-    let value = &chunk.constants[const_index as usize];
-    let instruction = format!("{instruction:?}");
-    writeln!(f, "{instruction:>16} {const_index:>4} {value:?}").unwrap();
-    offset + 2
-}
-
-fn constlong_instruction(
     instruction: OpCode,
     chunk: &Chunk,
     offset: usize,

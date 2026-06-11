@@ -51,11 +51,6 @@ impl<'a> VM {
             match opcode {
                 OpCode::Pass => {}
                 OpCode::Constant => {
-                    let index = self.next_byte(&mut bytes) as u16;
-                    let val = self.read_const(chunk, index).clone();
-                    self.push(val);
-                }
-                OpCode::ConstLong => {
                     let index = u16::from_ne_bytes([
                         self.next_byte(&mut bytes),
                         self.next_byte(&mut bytes),
@@ -188,15 +183,15 @@ mod tests {
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::ConstLong, val, 0..0);
+        chunk.add_const_code(OpCode::Constant, val, 0..0);
         chunk.add_code(OpCode::Return, 0..0);
         chunk
     }
 
     fn chunk_with_binary_op(a: impl Into<Value>, b: impl Into<Value>, op: OpCode) -> Chunk {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::ConstLong, a, 0..0);
-        chunk.add_const_code(OpCode::ConstLong, b, 0..0);
+        chunk.add_const_code(OpCode::Constant, a, 0..0);
+        chunk.add_const_code(OpCode::Constant, b, 0..0);
         chunk.add_code(op as u8, 0..0);
         chunk.add_code(OpCode::Return, 0..0);
         chunk
@@ -219,7 +214,7 @@ mod tests {
     #[test]
     fn test_constant_long() {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::ConstLong, 20., 0..0);
+        chunk.add_const_code(OpCode::Constant, 20., 0..0);
         chunk.add_code(OpCode::Return, 0..0);
         let mut vm = VM::new();
         assert!(vm.run(&chunk).is_ok_and(|x| x == Value::Number(20.)));
@@ -235,7 +230,7 @@ mod tests {
     #[test]
     fn test_negate_operator() {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::ConstLong, 10., 0..0);
+        chunk.add_const_code(OpCode::Constant, 10., 0..0);
         chunk.add_code(OpCode::Negate, 0..0);
         chunk.add_code(OpCode::Return, 0..0);
         let mut vm = VM::new();
@@ -277,17 +272,17 @@ mod tests {
     fn test_multiple_operations() {
         let mut chunk = Chunk::new();
         let span = 0..1;
-        chunk.add_const_code(OpCode::ConstLong, 5., span.clone());
+        chunk.add_const_code(OpCode::Constant, 5., span.clone());
 
-        chunk.add_const_code(OpCode::ConstLong, 10., span.clone());
-        chunk.add_const_code(OpCode::ConstLong, 9., span.clone());
+        chunk.add_const_code(OpCode::Constant, 10., span.clone());
+        chunk.add_const_code(OpCode::Constant, 9., span.clone());
         chunk.add_code(OpCode::Subtract, span.clone());
         // 10 - 9 = 1
-        chunk.add_const_code(OpCode::ConstLong, 3., span.clone());
-        chunk.add_const_code(OpCode::ConstLong, 4., span.clone());
+        chunk.add_const_code(OpCode::Constant, 3., span.clone());
+        chunk.add_const_code(OpCode::Constant, 4., span.clone());
         chunk.add_code(OpCode::Add, span.clone());
         // 4 + 3 = 7
-        chunk.add_const_code(OpCode::ConstLong, 20., span.clone());
+        chunk.add_const_code(OpCode::Constant, 20., span.clone());
         chunk.add_code(OpCode::Multiply, span.clone());
         // 20 * 7 = 140
         chunk.add_code(OpCode::Divide, span.clone());

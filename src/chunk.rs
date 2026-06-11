@@ -83,13 +83,13 @@ mod test_chunk {
         for i in 0..300 {
             chunk.push_constant(i as f64);
         }
-        chunk.add_const_code(OpCode::ConstLong, 12345.0, 0..1);
+        chunk.add_const_code(OpCode::Constant, 12345.0, 0..1);
 
         let index: u16 = 300;
         let [low, high] = index.to_le_bytes();
         let last_bytes = &chunk.code[chunk.code.len() - 3..];
 
-        assert_eq!(last_bytes, &[2, low, high]);
+        assert_eq!(last_bytes, &[1, low, high]);
         assert_eq!(chunk.spans[chunk.spans.len() - 3..], [0..1, 0..1, 0..1]);
         assert_eq!(chunk.constants.last().unwrap(), &Value::Number(12345.0));
     }
@@ -99,10 +99,10 @@ mod test_chunk {
     fn add_constant_too_many_panics() {
         let mut chunk = Chunk::new();
         for _ in 0..2usize.pow(16) {
-            chunk.add_const_code(OpCode::ConstLong, 3.15, 0..1);
+            chunk.add_const_code(OpCode::Constant, 3.15, 0..1);
         }
 
-        chunk.add_const_code(OpCode::ConstLong, 3.15, 0..1);
+        chunk.add_const_code(OpCode::Constant, 3.15, 0..1);
     }
 
     #[test]
