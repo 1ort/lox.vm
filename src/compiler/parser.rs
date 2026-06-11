@@ -1,6 +1,8 @@
 use super::lexer::Lexer;
 use super::token::Token;
-use crate::{chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode};
+use crate::{
+    chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode, value::Value,
+};
 use std::{iter::Peekable, mem::discriminant, ops::Range};
 
 mod expression;
@@ -159,7 +161,8 @@ impl<'a> Parser<'a> {
             TokenType::Semicolon,
             "Expect ';' after variable declaration.",
         )?;
-        self.chunk.define_global(global, var.span);
+        self.chunk
+            .add_const_code(OpCode::DefineGlobal, global, var.span);
         Ok(())
     }
 
@@ -187,10 +190,10 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn identifier(&mut self) -> Result<usize, SyntaxError> {
+    fn identifier(&mut self) -> Result<Value, SyntaxError> {
         let token = self.expect_token(TokenType::Identifier, "Expect variable name.")?;
         let lexeme = &self.source[token.span.clone()];
         let identifier = self.interner.intern(lexeme);
-        Ok(self.chunk.add_global(identifier))
+        Ok(Value::Str(identifier))
     }
 }

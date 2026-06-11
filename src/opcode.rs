@@ -22,6 +22,7 @@ pub enum OpCode {
     Pop,
     DefineGlobal,
     GetGlobal,
+    SetGlobal,
 }
 
 impl From<OpCode> for u8 {
@@ -53,6 +54,7 @@ impl From<u8> for OpCode {
             17 => Pop,
             18 => DefineGlobal,
             19 => GetGlobal,
+            20 => SetGlobal,
             _ => Pass,
         }
     }

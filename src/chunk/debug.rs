@@ -20,7 +20,7 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
     let instruction: OpCode = chunk.code[offset].into();
     match instruction {
         Constant => constant_instruction(instruction, chunk, offset, f),
-        ConstLong | DefineGlobal | GetGlobal => {
+        ConstLong | DefineGlobal | GetGlobal | SetGlobal => {
             constlong_instruction(instruction, chunk, offset, f)
         }
         _ => simple_instruction(instruction, offset, f),

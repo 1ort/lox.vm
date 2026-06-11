@@ -42,13 +42,13 @@ impl<'a> Parser<'a> {
                     message: format!("Can not parse number: {err}."),
                     span: span.clone(),
                 })?;
-                self.chunk.add_constant(value, span);
+                self.chunk.add_const_code(OpCode::ConstLong, value, span);
             }
             TokenType::String => {
                 let span = self.next()?.span;
                 let lexeme = self.lexeme(&span);
                 let value: Value = self.interner.intern(lexeme).into();
-                self.chunk.add_constant(value, span);
+                self.chunk.add_const_code(OpCode::ConstLong, value, span);
             }
             TokenType::UnterminatedString => {
                 let span = self.peek().span.clone();
@@ -92,8 +92,19 @@ impl<'a> Parser<'a> {
                 let span = self.next()?.span;
                 let lexeme = self.lexeme(&span);
                 let value: Value = self.interner.intern(lexeme).into();
-                let arg = self.chunk.add_constant(value, span.clone());
-                self.chunk.get_global(arg, span.clone());
+                match self.peek().token_type {
+                    TokenType::Equal => {
+                        todo!()
+
+                        // let span = self.peek().span.clone();
+                        // let _ = self.next();
+                        // self.expression()?;
+                        // self.chunk.set_global(arg, span)
+                    }
+                    _ => {
+                        self.chunk.add_const_code(OpCode::GetGlobal, value, span);
+                    }
+                }
             }
             token => {
                 eprintln!("{token:?}");
