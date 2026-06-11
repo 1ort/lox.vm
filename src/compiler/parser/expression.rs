@@ -92,16 +92,14 @@ impl<'a> Parser<'a> {
                 let span = self.next()?.span;
                 let lexeme = self.lexeme(&span);
                 let value: Value = self.interner.intern(lexeme).into();
-                match self.peek().token_type {
-                    TokenType::Equal => {
-                        let tok = self.next().expect("should be equal token");
-                        self.expression()?;
-                        self.chunk
-                            .add_const_code(OpCode::SetGlobal, value, tok.span)
-                    }
-                    _ => {
-                        self.chunk.add_const_code(OpCode::GetGlobal, value, span);
-                    }
+
+                if matches!(self.peek().token_type, TokenType::Equal) && min_bp == 0 {
+                    let tok = self.next().expect("should be equal token");
+                    self.expression()?;
+                    self.chunk
+                        .add_const_code(OpCode::SetGlobal, value, tok.span)
+                } else {
+                    self.chunk.add_const_code(OpCode::GetGlobal, value, span);
                 }
             }
             token => {
@@ -115,12 +113,17 @@ impl<'a> Parser<'a> {
         }
         loop {
             let op = self.peek();
+            if matches!(op.token_type, TokenType::Equal) {
+                return Err(SyntaxError {
+                    message: "Invalid assignment target.".to_owned(),
+                    span: op.span.clone(),
+                });
+            }
             if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
                 if l_bp < min_bp {
                     break;
                 }
                 let op = self.next()?;
-                self.expr_bp(r_bp)?;
                 let opcodes: &[OpCode] = match op.token_type {
                     TokenType::Minus => &[OpCode::Subtract],
                     TokenType::Plus => &[OpCode::Add],
@@ -136,6 +139,7 @@ impl<'a> Parser<'a> {
                         panic!("expected opcode for {op:?}")
                     }
                 };
+                self.expr_bp(r_bp)?;
                 for code in opcodes.iter().cloned() {
                     self.chunk.add_code(code, op.span.clone());
                 }
