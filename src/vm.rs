@@ -137,7 +137,20 @@ impl<'a> VM {
                     self.push(value.clone());
                 }
                 OpCode::SetGlobal => {
-                    todo!()
+                    let index = u16::from_ne_bytes([
+                        self.next_byte(&mut bytes),
+                        self.next_byte(&mut bytes),
+                    ]);
+                    let name = self.read_const(chunk, index);
+                    let Value::Str(identifier) = name else {
+                        panic!("Expect identifier to be Str")
+                    };
+                    let value = self.pop();
+                    if !self.globals.contains_key(identifier) {
+                        return Err(RuntimeError(format!("Undefined variable {identifier}")));
+                    }
+                    self.globals.insert(Rc::clone(identifier), value.clone());
+                    self.push(value);
                 }
             }
 

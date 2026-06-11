@@ -94,12 +94,10 @@ impl<'a> Parser<'a> {
                 let value: Value = self.interner.intern(lexeme).into();
                 match self.peek().token_type {
                     TokenType::Equal => {
-                        todo!()
-
-                        // let span = self.peek().span.clone();
-                        // let _ = self.next();
-                        // self.expression()?;
-                        // self.chunk.set_global(arg, span)
+                        let tok = self.next().expect("should be equal token");
+                        self.expression()?;
+                        self.chunk
+                            .add_const_code(OpCode::SetGlobal, value, tok.span)
                     }
                     _ => {
                         self.chunk.add_const_code(OpCode::GetGlobal, value, span);
