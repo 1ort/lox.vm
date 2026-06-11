@@ -137,7 +137,28 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Result<(), SyntaxError> {
-        self.statement()
+        match self.peek().token_type {
+            TokenType::Var => self.var_declaration(),
+            _ => self.statement(),
+        }
+    }
+
+    fn var_declaration(&mut self) -> Result<(), SyntaxError> {
+        let var = self.next()?;
+        let global = self.identifier()?;
+
+        if matches!(self.peek().token_type, TokenType::Equal) {
+            let _ = self.next();
+            self.expression()?;
+        } else {
+            self.chunk.add_code(OpCode::Nil, var.span.clone());
+        }
+        self.expect_token(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        )?;
+        self.chunk.define_global(global, var.span);
+        Ok(())
     }
 
     fn statement(&mut self) -> Result<(), SyntaxError> {
@@ -162,5 +183,12 @@ impl<'a> Parser<'a> {
             .span;
         self.chunk.add_code(OpCode::Pop, span);
         Ok(())
+    }
+
+    fn identifier(&mut self) -> Result<usize, SyntaxError> {
+        let token = self.expect_token(TokenType::Identifier, "Expect variable name.")?;
+        let lexeme = &self.source[token.span.clone()];
+        let identifier = self.interner.intern(lexeme);
+        Ok(self.chunk.add_global(identifier))
     }
 }

@@ -89,7 +89,15 @@ impl<'a> Parser<'a> {
                 self.expr_bp(r_bp)?;
                 self.chunk.add_code(opcode, token.span);
             }
-            _ => {
+            TokenType::Identifier => {
+                let span = self.next()?.span;
+                let lexeme = self.lexeme(&span);
+                let value: Value = self.interner.intern(lexeme).into();
+                let arg = self.chunk.add_constant(value, span.clone());
+                self.chunk.get_global(arg, span.clone());
+            }
+            token => {
+                eprintln!("{token:?}");
                 let span = self.peek().span.clone();
                 return Err(SyntaxError {
                     message: "Expected expression".to_owned(),

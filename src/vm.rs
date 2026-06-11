@@ -1,4 +1,4 @@
-use std::iter::Iterator;
+use std::{collections::HashMap, iter::Iterator, rc::Rc};
 
 use crate::{
     chunk::{Chunk, debug::format_instruction},
@@ -14,12 +14,14 @@ pub struct RuntimeError(String);
 
 pub struct VM {
     stack: Vec<Value>, // TODO: store &Value directly to top of stack
+    globals: HashMap<Rc<str>, Value>,
 }
 
 impl Default for VM {
     fn default() -> Self {
         Self {
             stack: Vec::with_capacity(STACK_MAX),
+            globals: HashMap::new(),
         }
     }
 }
@@ -35,18 +37,21 @@ impl<'a> VM {
 
     pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, RuntimeError> {
         self.reset();
-
         let mut bytes = chunk.iter_code().enumerate();
-
+        if true {
+            println!("===chunk===");
+            print!("{}", chunk);
+            println!("===chunk===");
+        }
         loop {
             let opcode: OpCode = if let Some((offset, byte)) = bytes.next() {
-                if false {
+                if true {
                     // TODO: use compile-flag
                     let stack = &self.stack;
-                    println!("{stack:?}");
-                    let mut s = String::default();
-                    format_instruction(chunk, offset, &mut s);
-                    println!("{s}");
+                    println!("{:?}", &stack);
+                    //let mut s = String::default();
+                    // format_instruction(chunk, offset, &mut s);
+                    // println!("{s}");
                 }
                 *byte
             } else {
@@ -114,6 +119,34 @@ impl<'a> VM {
                 }
                 OpCode::Pop => {
                     self.pop();
+                }
+                OpCode::DefineGlobal => {
+                    let index = u16::from_ne_bytes([
+                        self.next_byte(&mut bytes),
+                        self.next_byte(&mut bytes),
+                    ]);
+                    let name = self.read_const(chunk, index);
+                    let Value::Str(identifier) = name else {
+                        panic!("Expect identifier to be Str")
+                    };
+                    let value = self.pop();
+                    self.globals.insert(Rc::clone(identifier), value);
+                }
+                OpCode::GetGlobal => {
+                    let index = u16::from_ne_bytes([
+                        self.next_byte(&mut bytes),
+                        self.next_byte(&mut bytes),
+                    ]);
+                    let name = self.read_const(chunk, index);
+                    let Value::Str(identifier) = name else {
+                        panic!("Expect identifier to be Str")
+                    };
+                    self.pop();
+                    let global = self.globals.get(identifier);
+                    let Some(value) = global else {
+                        return Err(RuntimeError(format!("Undefined variable {identifier}")));
+                    };
+                    self.push(value.clone());
                 }
             }
         }

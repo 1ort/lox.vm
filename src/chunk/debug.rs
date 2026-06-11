@@ -15,12 +15,14 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
 
     let span = &chunk.spans[offset];
     let span = &format!("{span:?}");
-    write!(f, "{offset:<04} {span:>4} ").unwrap();
+    write!(f, "{offset:<04} {span:>8} ").unwrap();
 
     let instruction: OpCode = chunk.code[offset].into();
     match instruction {
         Constant => constant_instruction(instruction, chunk, offset, f),
-        ConstLong => constlong_instruction(instruction, chunk, offset, f),
+        ConstLong | DefineGlobal | GetGlobal => {
+            constlong_instruction(instruction, chunk, offset, f)
+        }
         _ => simple_instruction(instruction, offset, f),
     }
 }

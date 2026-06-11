@@ -3,6 +3,7 @@ use crate::value::Value;
 use debug::format_chunk;
 use std::fmt::Display;
 use std::ops::Range;
+use std::rc::Rc;
 use std::slice::Iter;
 
 pub mod debug;
@@ -24,16 +25,41 @@ impl Chunk {
         self.spans.push(span.into());
     }
 
-    pub fn add_constant(&mut self, value: impl Into<Value>, span: Range<usize>) -> usize {
+    pub fn add_global(&mut self, name: Rc<str>) -> usize {
+        let value = Value::Str(name);
         let const_size = self.constants.len();
-        if const_size < 256 {
-            let const_index = self.push_constant(value);
-            self.add_code(OpCode::Constant, span.clone());
-            self.add_code(const_index as u8, span);
-            const_index
+        if const_size < 2usize.pow(16) {
+            self.push_constant(value)
         } else {
-            self.add_const_long(value, span)
+            panic!("Can't store more constants")
         }
+    }
+
+    pub fn define_global(&mut self, index: usize, span: Range<usize>) {
+        // globals always encoded as two bytes.
+        let global_index_bytes: [u8; 2] = (index as u16).to_le_bytes();
+        self.add_code(OpCode::DefineGlobal, span.clone());
+        self.add_code(global_index_bytes[0], span.clone());
+        self.add_code(global_index_bytes[1], span);
+    }
+
+    pub fn get_global(&mut self, index: usize, span: Range<usize>) {
+        let global_index_bytes: [u8; 2] = (index as u16).to_le_bytes();
+        self.add_code(OpCode::GetGlobal, span.clone());
+        self.add_code(global_index_bytes[0], span.clone());
+        self.add_code(global_index_bytes[1], span);
+    }
+
+    pub fn add_constant(&mut self, value: impl Into<Value>, span: Range<usize>) -> usize {
+        // let const_size = self.constants.len();
+        // if const_size < 256 {
+        //     let const_index = self.push_constant(value);
+        //     self.add_code(OpCode::Constant, span.clone());
+        //     self.add_code(const_index as u8, span);
+        //     const_index
+        //} else {
+        self.add_const_long(value, span)
+        //}
     }
 
     pub fn add_const_long(&mut self, value: impl Into<Value>, span: Range<usize>) -> usize {
