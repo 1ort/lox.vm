@@ -20,6 +20,8 @@ pub(super) struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
     chunk: &'a mut Chunk,
     interner: &'a mut Interner,
+
+    scope_depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -34,6 +36,7 @@ impl<'a> Parser<'a> {
             tokens,
             chunk,
             interner,
+            scope_depth: 0,
         }
     }
 
@@ -169,6 +172,7 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<(), SyntaxError> {
         match self.peek().token_type {
             TokenType::Print => self.print_statement(),
+            TokenType::LeftBrace => self.block(),
             _ => self.expression_statement(),
         }
     }
@@ -178,6 +182,20 @@ impl<'a> Parser<'a> {
         self.expression()?;
         self.expect_token(TokenType::Semicolon, "Expect ';' after value.")?;
         self.chunk.add_code(OpCode::Print, next.span);
+        Ok(())
+    }
+
+    fn block(&mut self) -> Result<(), SyntaxError> {
+        self.begin_scope();
+        self.next().expect("LeftBrace should be checked");
+        while !matches!(
+            self.peek().token_type,
+            TokenType::RightBrace | TokenType::Eof
+        ) {
+            self.declaration()?;
+        }
+        self.expect_token(TokenType::RightBrace, "Expect '}' after block.")?;
+        self.end_scope();
         Ok(())
     }
 
@@ -195,5 +213,13 @@ impl<'a> Parser<'a> {
         let lexeme = &self.source[token.span.clone()];
         let identifier = self.interner.intern(lexeme);
         Ok(Value::Str(identifier))
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
     }
 }
