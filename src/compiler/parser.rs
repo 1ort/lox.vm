@@ -217,4 +217,21 @@ impl<'a> Parser<'a> {
 
         self.scope_depth -= 1;
     }
+
+    fn emit_jump(&mut self, opcode: impl Into<u8>, span: Range<usize>) -> usize {
+        self.chunk.add_code(opcode, span.clone());
+        self.chunk.add_code(0xff, span.clone());
+        self.chunk.add_code(0xff, span);
+        self.chunk.code.len() - 2
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.chunk.code.len() - offset - 2;
+        if jump >= 2usize.pow(16) {
+            panic!("Too much code to jump over.")
+        }
+        let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
+        self.chunk.code[offset] = jump_bytes[0];
+        self.chunk.code[offset + 1] = jump_bytes[1];
+    }
 }

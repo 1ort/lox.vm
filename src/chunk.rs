@@ -35,7 +35,6 @@ impl Chunk {
         self.add_index_code(opcode, index as u16, span);
     }
 
-    /// Adds a constant to the chunk. Returns it's index
     pub fn push_constant(&mut self, value: impl Into<Value>) -> usize {
         let const_size = self.constants.len();
         if const_size < 2usize.pow(16) {

@@ -46,7 +46,7 @@ impl<'a> Parser<'a> {
 
     fn block(&mut self) -> Result<(), SyntaxError> {
         self.begin_scope();
-        self.next().expect("LeftBrace should be checked");
+        self.next()?;
         while !matches!(
             self.peek().token_type,
             TokenType::RightBrace | TokenType::Eof
@@ -87,6 +87,7 @@ impl<'a> Parser<'a> {
         match self.peek().token_type {
             TokenType::Print => self.print_statement(),
             TokenType::LeftBrace => self.block(),
+            TokenType::If => self.if_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -96,6 +97,30 @@ impl<'a> Parser<'a> {
         self.expression()?;
         self.expect_token(TokenType::Semicolon, "Expect ';' after value.")?;
         self.chunk.add_code(OpCode::Print, next.span);
+        Ok(())
+    }
+
+    fn if_statement(&mut self) -> Result<(), SyntaxError> {
+        let if_tok = self.next()?;
+
+        self.expect_token(TokenType::LeftParen, "Expect '(' after 'if'.")?;
+        self.expression()?;
+        self.expect_token(TokenType::RightParen, "Expect ')' after condition.")?;
+
+        let jump = self.emit_jump(OpCode::JumpIfFalse, if_tok.span.clone());
+        self.chunk.add_code(OpCode::Pop, if_tok.span.clone());
+
+        self.statement()?;
+
+        let else_jump = self.emit_jump(OpCode::Jump, if_tok.span.clone());
+        self.chunk.add_code(OpCode::Pop, if_tok.span.clone());
+
+        self.patch_jump(jump);
+        if matches!(self.peek().token_type, TokenType::Else) {
+            self.next()?;
+            self.statement()?;
+            self.patch_jump(else_jump);
+        }
         Ok(())
     }
 }

@@ -160,6 +160,17 @@ impl<'a> VM {
                     let value = self.peek();
                     self.stack[index as usize] = value.clone();
                 }
+                OpCode::JumpIfFalse => {
+                    let offset = self.next_double(bytes);
+                    let cond: bool = self.peek().into();
+                    if !cond {
+                        self.ip += offset as usize;
+                    }
+                }
+                OpCode::Jump => {
+                    let offset = self.next_double(bytes);
+                    self.ip += offset as usize;
+                }
             }
 
             if cfg!(feature = "debug_vm") {

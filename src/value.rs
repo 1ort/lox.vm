@@ -58,6 +58,17 @@ impl From<Value> for bool {
     }
 }
 
+impl From<&Value> for bool {
+    fn from(value: &Value) -> Self {
+        match value {
+            Number(_) => true,
+            Str(_) => true,
+            Bool(x) => *x,
+            Nil => false,
+        }
+    }
+}
+
 use Value::*;
 
 impl Neg for Value {
