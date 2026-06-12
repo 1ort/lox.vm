@@ -1,6 +1,9 @@
 use super::token::{Token, TokenType};
 use std::{iter::Peekable, str::Chars};
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Lexer<'a> {
     source: &'a str,
     source_iter: Peekable<Chars<'a>>,
@@ -240,6 +243,3 @@ impl<'a> Lexer<'a> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

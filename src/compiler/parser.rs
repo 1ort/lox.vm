@@ -4,6 +4,7 @@ use crate::{chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode
 use std::{iter::Peekable, mem::discriminant, ops::Range, rc::Rc};
 
 mod expression;
+mod statement;
 
 #[derive(Clone)]
 struct Identifier {
@@ -30,10 +31,8 @@ pub(super) struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
     chunk: &'a mut Chunk,
     interner: &'a mut Interner,
-
     locals: Vec<Local>,
     scope_depth: usize,
-
     errors: Vec<SyntaxError>,
 }
 
@@ -156,45 +155,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn declaration(&mut self) -> Result<(), SyntaxError> {
-        match self.peek().token_type {
-            TokenType::Var => self.var_declaration(),
-            _ => self.statement(),
-        }
-    }
-
-    fn var_declaration(&mut self) -> Result<(), SyntaxError> {
-        let var = self.next()?;
-        let identifier = self.identifier()?;
-
-        let local_index = if self.scope_depth > 0 {
-            Some(self.add_local(&identifier)?)
-        } else {
-            None
-        };
-
-        if matches!(self.peek().token_type, TokenType::Equal) {
-            let _ = self.next();
-            self.expression()?;
-        } else {
-            self.chunk.add_code(OpCode::Nil, var.span.clone());
-        }
-        self.expect_token(
-            TokenType::Semicolon,
-            "Expect ';' after variable declaration.",
-        )?;
-
-        match local_index {
-            Some(index) => self.locals[index].initialized = true,
-            None => {
-                self.chunk
-                    .add_const_code(OpCode::DefineGlobal, identifier.name, identifier.span)
-            }
-        }
-
-        Ok(())
-    }
-
     fn add_local(&mut self, identifier: &Identifier) -> Result<usize, SyntaxError> {
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
@@ -239,61 +199,6 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(None)
-    }
-
-    fn statement(&mut self) -> Result<(), SyntaxError> {
-        match self.peek().token_type {
-            TokenType::Print => self.print_statement(),
-            TokenType::LeftBrace => self.block(),
-            _ => self.expression_statement(),
-        }
-    }
-
-    fn print_statement(&mut self) -> Result<(), SyntaxError> {
-        let next = self.next()?;
-        self.expression()?;
-        self.expect_token(TokenType::Semicolon, "Expect ';' after value.")?;
-        self.chunk.add_code(OpCode::Print, next.span);
-        Ok(())
-    }
-
-    fn block(&mut self) -> Result<(), SyntaxError> {
-        self.begin_scope();
-        self.next().expect("LeftBrace should be checked");
-        while !matches!(
-            self.peek().token_type,
-            TokenType::RightBrace | TokenType::Eof
-        ) {
-            match self.declaration() {
-                Ok(_) => continue,
-                Err(err) => {
-                    self.errors.push(err);
-                    self.synchronize();
-                }
-            }
-        }
-        let closing_brace = self.expect_token(TokenType::RightBrace, "Expect '}' after block.")?;
-        self.end_scope(&closing_brace.span);
-        Ok(())
-    }
-
-    fn expression_statement(&mut self) -> Result<(), SyntaxError> {
-        self.expression()?;
-        let span = self
-            .expect_token(TokenType::Semicolon, "Expect ';' after value.")?
-            .span;
-        self.chunk.add_code(OpCode::Pop, span);
-        Ok(())
-    }
-
-    fn identifier(&mut self) -> Result<Identifier, SyntaxError> {
-        let token = self.expect_token(TokenType::Identifier, "Expect variable name.")?;
-        let lexeme = &self.source[token.span.clone()];
-        let name = self.interner.intern(lexeme);
-        Ok(Identifier {
-            name,
-            span: token.span,
-        })
     }
 
     fn begin_scope(&mut self) {
