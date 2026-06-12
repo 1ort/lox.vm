@@ -1,4 +1,9 @@
-use crate::{chunk::Chunk, interner::Interner, opcode::OpCode, value::Value};
+use crate::{
+    chunk::{self, Chunk},
+    interner::Interner,
+    opcode::OpCode,
+    value::Value,
+};
 use std::{collections::HashMap, iter::Iterator, rc::Rc};
 
 const STACK_MAX: usize = 256;
@@ -51,10 +56,7 @@ impl<'a> VM {
             match opcode {
                 OpCode::Pass => {}
                 OpCode::Constant => {
-                    let index = u16::from_ne_bytes([
-                        self.next_byte(&mut bytes),
-                        self.next_byte(&mut bytes),
-                    ]);
+                    let index = self.read_index(&mut bytes);
                     let val = self.read_const(chunk, index).clone();
                     self.push(val);
                 }
@@ -111,10 +113,7 @@ impl<'a> VM {
                     self.pop();
                 }
                 OpCode::DefineGlobal => {
-                    let index = u16::from_ne_bytes([
-                        self.next_byte(&mut bytes),
-                        self.next_byte(&mut bytes),
-                    ]);
+                    let index = self.read_index(&mut bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -123,10 +122,7 @@ impl<'a> VM {
                     self.globals.insert(Rc::clone(identifier), value);
                 }
                 OpCode::GetGlobal => {
-                    let index = u16::from_ne_bytes([
-                        self.next_byte(&mut bytes),
-                        self.next_byte(&mut bytes),
-                    ]);
+                    let index = self.read_index(&mut bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -138,10 +134,7 @@ impl<'a> VM {
                     self.push(value.clone());
                 }
                 OpCode::SetGlobal => {
-                    let index = u16::from_ne_bytes([
-                        self.next_byte(&mut bytes),
-                        self.next_byte(&mut bytes),
-                    ]);
+                    let index = self.read_index(&mut bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -153,18 +146,12 @@ impl<'a> VM {
                     self.globals.insert(Rc::clone(identifier), value.clone());
                 }
                 OpCode::GetLocal => {
-                    let index = u16::from_ne_bytes([
-                        self.next_byte(&mut bytes),
-                        self.next_byte(&mut bytes),
-                    ]);
-                    let value = self.read_at_index(index as usize);
+                    let index = self.read_index(&mut bytes);
+                    let value = self.value_at_index(index);
                     self.push(value.clone());
                 }
                 OpCode::SetLocal => {
-                    let index = u16::from_ne_bytes([
-                        self.next_byte(&mut bytes),
-                        self.next_byte(&mut bytes),
-                    ]);
+                    let index = self.read_index(&mut bytes);
                     let value = self.peek();
                     self.stack[index as usize] = value.clone();
                 }
@@ -191,16 +178,20 @@ impl<'a> VM {
     }
 
     fn next_byte(&mut self, bytes: &mut impl Iterator<Item = (usize, &'a u8)>) -> u8 {
-        let (_, byte) = bytes.next().expect("Can't read constant");
+        let (_, byte) = bytes.next().expect("Bytes should be checked");
         *byte
+    }
+
+    fn read_index(&mut self, bytes: &mut impl Iterator<Item = (usize, &'a u8)>) -> u16 {
+        u16::from_ne_bytes([self.next_byte(bytes), self.next_byte(bytes)])
     }
 
     fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
         &chunk.constants[index as usize]
     }
 
-    fn read_at_index(&self, index: usize) -> &Value {
-        &self.stack[index]
+    fn value_at_index(&self, index: u16) -> &Value {
+        &self.stack[index as usize]
     }
 }
 
