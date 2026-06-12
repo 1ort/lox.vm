@@ -1,10 +1,5 @@
-use crate::{
-    chunk::{self, Chunk},
-    interner::Interner,
-    opcode::OpCode,
-    value::Value,
-};
-use std::{collections::HashMap, iter::Iterator, rc::Rc};
+use crate::{chunk::Chunk, interner::Interner, opcode::OpCode, value::Value};
+use std::{collections::HashMap, rc::Rc};
 
 const STACK_MAX: usize = 256;
 
@@ -14,6 +9,7 @@ pub struct RuntimeError(String);
 
 pub struct VM {
     stack: Vec<Value>, // TODO: store &Value directly to top of stack
+    ip: usize,
     globals: HashMap<Rc<str>, Value>,
 }
 
@@ -22,6 +18,7 @@ impl Default for VM {
         Self {
             stack: Vec::with_capacity(STACK_MAX),
             globals: HashMap::new(),
+            ip: 0,
         }
     }
 }
@@ -32,12 +29,23 @@ impl<'a> VM {
     }
 
     pub fn reset(&mut self) {
-        self.stack = Vec::with_capacity(STACK_MAX)
+        self.stack = Vec::with_capacity(STACK_MAX);
+        self.ip = 0;
+    }
+
+    fn next(&mut self, bytes: &[u8]) -> u8 {
+        let byte = bytes[self.ip];
+        self.ip += 1;
+        byte
+    }
+
+    fn next_double(&mut self, bytes: &[u8]) -> u16 {
+        u16::from_ne_bytes([self.next(bytes), self.next(bytes)])
     }
 
     pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, RuntimeError> {
         self.reset();
-        let mut bytes = chunk.iter_code().enumerate();
+        let bytes: &[u8] = &chunk.code;
 
         if cfg!(feature = "debug_vm") {
             println!("===chunk===");
@@ -46,17 +54,14 @@ impl<'a> VM {
         }
 
         loop {
-            let opcode: OpCode = if let Some((_, byte)) = bytes.next() {
-                *byte
-            } else {
+            if self.ip >= bytes.len() {
                 break;
             }
-            .into();
-
+            let opcode: OpCode = self.next(bytes).into();
             match opcode {
                 OpCode::Pass => {}
                 OpCode::Constant => {
-                    let index = self.read_index(&mut bytes);
+                    let index = self.next_double(bytes);
                     let val = self.read_const(chunk, index).clone();
                     self.push(val);
                 }
@@ -113,7 +118,7 @@ impl<'a> VM {
                     self.pop();
                 }
                 OpCode::DefineGlobal => {
-                    let index = self.read_index(&mut bytes);
+                    let index = self.next_double(bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -122,7 +127,7 @@ impl<'a> VM {
                     self.globals.insert(Rc::clone(identifier), value);
                 }
                 OpCode::GetGlobal => {
-                    let index = self.read_index(&mut bytes);
+                    let index = self.next_double(bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -134,7 +139,7 @@ impl<'a> VM {
                     self.push(value.clone());
                 }
                 OpCode::SetGlobal => {
-                    let index = self.read_index(&mut bytes);
+                    let index = self.next_double(bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -146,12 +151,12 @@ impl<'a> VM {
                     self.globals.insert(Rc::clone(identifier), value.clone());
                 }
                 OpCode::GetLocal => {
-                    let index = self.read_index(&mut bytes);
+                    let index = self.next_double(bytes);
                     let value = self.value_at_index(index);
                     self.push(value.clone());
                 }
                 OpCode::SetLocal => {
-                    let index = self.read_index(&mut bytes);
+                    let index = self.next_double(bytes);
                     let value = self.peek();
                     self.stack[index as usize] = value.clone();
                 }
@@ -175,15 +180,6 @@ impl<'a> VM {
 
     fn peek(&self) -> &Value {
         self.stack.last().expect("Attempt to peek empty stack")
-    }
-
-    fn next_byte(&mut self, bytes: &mut impl Iterator<Item = (usize, &'a u8)>) -> u8 {
-        let (_, byte) = bytes.next().expect("Bytes should be checked");
-        *byte
-    }
-
-    fn read_index(&mut self, bytes: &mut impl Iterator<Item = (usize, &'a u8)>) -> u16 {
-        u16::from_ne_bytes([self.next_byte(bytes), self.next_byte(bytes)])
     }
 
     fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
@@ -225,7 +221,7 @@ mod tests {
     #[test]
     fn test_empty_chunk() {
         let chunk = Chunk::new();
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(0.)));
+        assert!(run(&chunk).is_ok_and(|x| x == Value::Nil));
     }
 
     #[test]

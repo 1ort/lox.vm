@@ -3,7 +3,6 @@ use crate::value::Value;
 use debug::format_chunk;
 use std::fmt::Display;
 use std::ops::Range;
-use std::slice::Iter;
 
 pub mod debug;
 
@@ -45,9 +44,6 @@ impl Chunk {
         } else {
             panic!("Can't store more constants")
         }
-    }
-    pub fn iter_code(&self) -> Iter<'_, u8> {
-        self.code.iter()
     }
 }
 
