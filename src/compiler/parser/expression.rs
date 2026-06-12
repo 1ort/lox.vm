@@ -89,21 +89,24 @@ impl<'a> Parser<'a> {
                 self.chunk.add_code(opcode, token.span);
             }
             TokenType::Identifier => {
-                let span = self.next()?.span;
+                let mut span = self.next()?.span;
                 let lexeme = self.lexeme(&span);
-                let value: Value = self.interner.intern(lexeme).into();
-
-                if matches!(self.peek().token_type, TokenType::Equal) && min_bp == 0 {
-                    let tok = self.next().expect("should be equal token");
-                    self.expression()?;
-                    self.chunk
-                        .add_const_code(OpCode::SetGlobal, value, tok.span)
-                } else {
-                    self.chunk.add_const_code(OpCode::GetGlobal, value, span);
+                let name = self.interner.intern(lexeme);
+                let local_index = self.resolve_local(&name, span.clone())?;
+                let opcode: (OpCode, OpCode) =
+                    if matches!(self.peek().token_type, TokenType::Equal) && min_bp == 0 {
+                        span = self.next().expect("should be equal token").span;
+                        self.expression()?;
+                        (OpCode::SetLocal, OpCode::SetGlobal)
+                    } else {
+                        (OpCode::GetLocal, OpCode::GetGlobal)
+                    };
+                match local_index {
+                    Some(index) => self.chunk.add_index_code(opcode.0, index, span),
+                    None => self.chunk.add_const_code(opcode.1, name, span),
                 }
             }
-            token => {
-                eprintln!("{token:?}");
+            _ => {
                 let span = self.peek().span.clone();
                 return Err(SyntaxError {
                     message: "Expected expression".to_owned(),

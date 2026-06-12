@@ -46,7 +46,7 @@ fn repl() -> ExitCode {
                 let result = vm.run(&chunk, &mut interner);
                 match result {
                     Ok(value) if !value.is_nil() => println!("{value}"),
-                    Err(error) => eprint!("{error:?}"),
+                    Err(error) => eprintln!("{error:?}"),
                     _ => {}
                 }
             }

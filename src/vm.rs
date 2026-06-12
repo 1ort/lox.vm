@@ -146,12 +146,27 @@ impl<'a> VM {
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
                     };
-                    let value = self.pop();
+                    let value = self.peek();
                     if !self.globals.contains_key(identifier) {
                         return Err(RuntimeError(format!("Undefined variable {identifier}")));
                     }
                     self.globals.insert(Rc::clone(identifier), value.clone());
-                    self.push(value);
+                }
+                OpCode::GetLocal => {
+                    let index = u16::from_ne_bytes([
+                        self.next_byte(&mut bytes),
+                        self.next_byte(&mut bytes),
+                    ]);
+                    let value = self.read_at_index(index as usize);
+                    self.push(value.clone());
+                }
+                OpCode::SetLocal => {
+                    let index = u16::from_ne_bytes([
+                        self.next_byte(&mut bytes),
+                        self.next_byte(&mut bytes),
+                    ]);
+                    let value = self.peek();
+                    self.stack[index as usize] = value.clone();
                 }
             }
 
@@ -171,6 +186,10 @@ impl<'a> VM {
         self.stack.pop().expect("Attempt to pop empty stack")
     }
 
+    fn peek(&self) -> &Value {
+        self.stack.last().expect("Attempt to peek empty stack")
+    }
+
     fn next_byte(&mut self, bytes: &mut impl Iterator<Item = (usize, &'a u8)>) -> u8 {
         let (_, byte) = bytes.next().expect("Can't read constant");
         *byte
@@ -178,6 +197,10 @@ impl<'a> VM {
 
     fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
         &chunk.constants[index as usize]
+    }
+
+    fn read_at_index(&self, index: usize) -> &Value {
+        &self.stack[index]
     }
 }
 

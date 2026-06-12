@@ -24,13 +24,16 @@ impl Chunk {
         self.spans.push(span.into());
     }
 
-    pub fn add_const_code(&mut self, opcode: OpCode, value: impl Into<Value>, span: Range<usize>) {
-        let index = self.push_constant(value);
-
-        let index_bytes: [u8; 2] = (index as u16).to_le_bytes();
+    pub fn add_index_code(&mut self, opcode: OpCode, index: u16, span: Range<usize>) {
+        let index_bytes: [u8; 2] = (index).to_le_bytes();
         self.add_code(opcode, span.clone());
         self.add_code(index_bytes[0], span.clone());
         self.add_code(index_bytes[1], span);
+    }
+
+    pub fn add_const_code(&mut self, opcode: OpCode, value: impl Into<Value>, span: Range<usize>) {
+        let index = self.push_constant(value);
+        self.add_index_code(opcode, index as u16, span);
     }
 
     /// Adds a constant to the chunk. Returns it's index

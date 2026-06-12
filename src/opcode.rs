@@ -22,6 +22,8 @@ pub enum OpCode {
     DefineGlobal,
     GetGlobal,
     SetGlobal,
+    GetLocal,
+    SetLocal,
 }
 
 impl From<OpCode> for u8 {
@@ -53,6 +55,8 @@ impl From<u8> for OpCode {
             17 => DefineGlobal,
             18 => GetGlobal,
             19 => SetGlobal,
+            20 => GetLocal,
+            21 => SetLocal,
             _ => Pass,
         }
     }

@@ -1,11 +1,21 @@
 use super::lexer::Lexer;
 use super::token::Token;
-use crate::{
-    chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode, value::Value,
-};
-use std::{iter::Peekable, mem::discriminant, ops::Range};
+use crate::{chunk::Chunk, compiler::token::TokenType, interner::Interner, opcode::OpCode};
+use std::{iter::Peekable, mem::discriminant, ops::Range, rc::Rc};
 
 mod expression;
+
+#[derive(Clone)]
+struct Identifier {
+    name: Rc<str>,
+    span: Range<usize>,
+}
+
+struct Local {
+    identifier: Identifier,
+    depth: usize,
+    initialized: bool,
+}
 
 #[derive(Debug)]
 pub struct SyntaxError {
@@ -21,7 +31,10 @@ pub(super) struct Parser<'a> {
     chunk: &'a mut Chunk,
     interner: &'a mut Interner,
 
+    locals: Vec<Local>,
     scope_depth: usize,
+
+    errors: Vec<SyntaxError>,
 }
 
 impl<'a> Parser<'a> {
@@ -36,27 +49,27 @@ impl<'a> Parser<'a> {
             tokens,
             chunk,
             interner,
+            locals: Vec::new(),
             scope_depth: 0,
+            errors: Vec::new(),
         }
     }
 
     pub(super) fn compile(mut self) -> Result<(), Vec<SyntaxError>> {
-        let mut errors: Vec<SyntaxError> = Vec::new();
-
         loop {
             let next = self.peek();
             if matches!(next.token_type, TokenType::Eof) {
                 break;
             }
             if let Err(err) = self.declaration() {
-                errors.push(err);
+                self.errors.push(err);
                 self.synchronize();
             }
         }
-        if errors.is_empty() {
+        if self.errors.is_empty() {
             Ok(())
         } else {
-            Err(errors)
+            Err(self.errors)
         }
     }
 
@@ -152,7 +165,13 @@ impl<'a> Parser<'a> {
 
     fn var_declaration(&mut self) -> Result<(), SyntaxError> {
         let var = self.next()?;
-        let global = self.identifier()?;
+        let identifier = self.identifier()?;
+
+        let local_index = if self.scope_depth > 0 {
+            Some(self.add_local(&identifier)?)
+        } else {
+            None
+        };
 
         if matches!(self.peek().token_type, TokenType::Equal) {
             let _ = self.next();
@@ -164,9 +183,62 @@ impl<'a> Parser<'a> {
             TokenType::Semicolon,
             "Expect ';' after variable declaration.",
         )?;
-        self.chunk
-            .add_const_code(OpCode::DefineGlobal, global, var.span);
+
+        match local_index {
+            Some(index) => self.locals[index].initialized = true,
+            None => {
+                self.chunk
+                    .add_const_code(OpCode::DefineGlobal, identifier.name, identifier.span)
+            }
+        }
+
         Ok(())
+    }
+
+    fn add_local(&mut self, identifier: &Identifier) -> Result<usize, SyntaxError> {
+        for local in self.locals.iter().rev() {
+            if local.depth < self.scope_depth {
+                break;
+            }
+            if local.identifier.name.eq(&identifier.name) {
+                return Err(SyntaxError {
+                    message: "Already a variable with this name in this scope.".to_owned(),
+                    span: identifier.span.clone(),
+                });
+            }
+        }
+
+        if self.locals.len() < 2usize.pow(16) {
+            let local = Local {
+                identifier: identifier.clone(),
+                depth: self.scope_depth,
+                initialized: false,
+            };
+            self.locals.push(local);
+            Ok(self.locals.len() - 1)
+        } else {
+            panic!("Too many local variables in function.")
+        }
+    }
+
+    fn resolve_local(
+        &mut self,
+        name: &Rc<str>,
+        span: Range<usize>,
+    ) -> Result<Option<u16>, SyntaxError> {
+        for (stack_index, local) in self.locals.iter().enumerate().rev() {
+            if local.identifier.name.eq(name) {
+                if !local.initialized {
+                    return Err(SyntaxError {
+                        message: "Can't read local variable in its own initializer.".to_owned(),
+                        span,
+                    });
+                } else {
+                    return Ok(Some(stack_index as u16));
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn statement(&mut self) -> Result<(), SyntaxError> {
@@ -192,10 +264,16 @@ impl<'a> Parser<'a> {
             self.peek().token_type,
             TokenType::RightBrace | TokenType::Eof
         ) {
-            self.declaration()?;
+            match self.declaration() {
+                Ok(_) => continue,
+                Err(err) => {
+                    self.errors.push(err);
+                    self.synchronize();
+                }
+            }
         }
-        self.expect_token(TokenType::RightBrace, "Expect '}' after block.")?;
-        self.end_scope();
+        let closing_brace = self.expect_token(TokenType::RightBrace, "Expect '}' after block.")?;
+        self.end_scope(&closing_brace.span);
         Ok(())
     }
 
@@ -208,18 +286,30 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn identifier(&mut self) -> Result<Value, SyntaxError> {
+    fn identifier(&mut self) -> Result<Identifier, SyntaxError> {
         let token = self.expect_token(TokenType::Identifier, "Expect variable name.")?;
         let lexeme = &self.source[token.span.clone()];
-        let identifier = self.interner.intern(lexeme);
-        Ok(Value::Str(identifier))
+        let name = self.interner.intern(lexeme);
+        Ok(Identifier {
+            name,
+            span: token.span,
+        })
     }
 
     fn begin_scope(&mut self) {
         self.scope_depth += 1;
     }
 
-    fn end_scope(&mut self) {
+    fn end_scope(&mut self, span: &Range<usize>) {
+        while self
+            .locals
+            .last()
+            .is_some_and(|loc| loc.depth == self.scope_depth)
+        {
+            self.locals.pop().expect("locals.last() should be Some()");
+            self.chunk.add_code(OpCode::Pop, span.clone());
+        }
+
         self.scope_depth -= 1;
     }
 }
