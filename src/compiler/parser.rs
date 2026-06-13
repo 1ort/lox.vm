@@ -27,10 +27,8 @@ pub struct SyntaxError {
 }
 
 struct LoopContext {
-    depth: usize,
-    breaks: Vec<usize>,
-    // offsets of continue jumps
-    continues: Vec<usize>,
+    stack_depth_at_start: usize,
+    break_patches: Vec<usize>,
 }
 
 pub(super) struct Parser<'a> {
@@ -41,7 +39,7 @@ pub(super) struct Parser<'a> {
     locals: Vec<Local>,
     scope_depth: usize,
     errors: Vec<SyntaxError>,
-    loop_conext: Option<LoopContext>,
+    loop_context: Option<LoopContext>,
 }
 
 impl<'a> Parser<'a> {
@@ -59,7 +57,7 @@ impl<'a> Parser<'a> {
             locals: Vec::new(),
             scope_depth: 0,
             errors: Vec::new(),
-            loop_conext: None,
+            loop_context: None,
         }
     }
 
