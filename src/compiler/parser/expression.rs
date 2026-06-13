@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
                         TokenType::Greater => &[OpCode::Greater],
                         TokenType::EqualEqual => &[OpCode::Equal],
                         TokenType::GreaterEqual => &[OpCode::Less, OpCode::Not],
-                        TokenType::LessEqual => &[OpCode::Less, OpCode::Not],
+                        TokenType::LessEqual => &[OpCode::Greater, OpCode::Not],
                         TokenType::BangEqual => &[OpCode::Equal, OpCode::Not],
                         _ => {
                             panic!("expected opcode for {op:?}")
