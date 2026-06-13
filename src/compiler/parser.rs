@@ -225,6 +225,17 @@ impl<'a> Parser<'a> {
         self.chunk.code.len() - 2
     }
 
+    fn emit_loop(&mut self, loop_start: usize, span: Range<usize>) {
+        self.chunk.add_code(OpCode::Loop, span.clone());
+        let jump = self.chunk.code.len() - loop_start + 2;
+        if jump >= 2usize.pow(16) {
+            panic!("Too much code to jump over.")
+        }
+        let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
+        self.chunk.add_code(jump_bytes[0], span.clone());
+        self.chunk.add_code(jump_bytes[1], span);
+    }
+
     fn patch_jump(&mut self, offset: usize) {
         let jump = self.chunk.code.len() - offset - 2;
         if jump >= 2usize.pow(16) {

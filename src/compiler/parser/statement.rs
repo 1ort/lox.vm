@@ -88,6 +88,7 @@ impl<'a> Parser<'a> {
             TokenType::Print => self.print_statement(),
             TokenType::LeftBrace => self.block(),
             TokenType::If => self.if_statement(),
+            TokenType::While => self.while_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -121,6 +122,21 @@ impl<'a> Parser<'a> {
             self.statement()?;
             self.patch_jump(else_jump);
         }
+        Ok(())
+    }
+
+    fn while_statement(&mut self) -> Result<(), SyntaxError> {
+        let while_tok = self.next()?;
+        let loop_start = self.chunk.code.len();
+        self.expect_token(TokenType::LeftParen, "Expect '(' after 'while'.")?;
+        self.expression()?;
+        self.expect_token(TokenType::RightParen, "Expect ')' after condition.")?;
+        let skip_jump = self.emit_jump(OpCode::JumpIfFalse, while_tok.span.clone());
+        self.chunk.add_code(OpCode::Pop, while_tok.span.clone());
+        self.statement()?;
+        self.emit_loop(loop_start, while_tok.span);
+        self.patch_jump(skip_jump);
+
         Ok(())
     }
 }

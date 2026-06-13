@@ -171,6 +171,10 @@ impl<'a> VM {
                     let offset = self.next_double(bytes);
                     self.ip += offset as usize;
                 }
+                OpCode::Loop => {
+                    let offset = self.next_double(bytes);
+                    self.ip -= offset as usize;
+                }
             }
 
             if cfg!(feature = "debug_vm") {

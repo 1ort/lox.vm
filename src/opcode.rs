@@ -26,6 +26,7 @@ pub enum OpCode {
     SetLocal,
     JumpIfFalse,
     Jump,
+    Loop,
 }
 
 impl From<OpCode> for u8 {
@@ -61,6 +62,7 @@ impl From<u8> for OpCode {
             21 => SetLocal,
             22 => JumpIfFalse,
             23 => Jump,
+            24 => Loop,
             _ => Pass,
         }
     }
