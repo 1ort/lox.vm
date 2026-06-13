@@ -21,6 +21,8 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
         | TokenType::Greater
         | TokenType::GreaterEqual
         | TokenType::BangEqual => (9, 10),
+        TokenType::And => (7, 8),
+        TokenType::Or => (5, 6),
         _ => {
             return None;
         }
@@ -126,25 +128,40 @@ impl<'a> Parser<'a> {
                 if l_bp < min_bp {
                     break;
                 }
+                //short circuit operators
                 let op = self.next()?;
-                let opcodes: &[OpCode] = match op.token_type {
-                    TokenType::Minus => &[OpCode::Subtract],
-                    TokenType::Plus => &[OpCode::Add],
-                    TokenType::Slash => &[OpCode::Divide],
-                    TokenType::Star => &[OpCode::Multiply],
-                    TokenType::Less => &[OpCode::Less],
-                    TokenType::Greater => &[OpCode::Greater],
-                    TokenType::EqualEqual => &[OpCode::Equal],
-                    TokenType::GreaterEqual => &[OpCode::Less, OpCode::Not],
-                    TokenType::LessEqual => &[OpCode::Less, OpCode::Not],
-                    TokenType::BangEqual => &[OpCode::Equal, OpCode::Not],
-                    _ => {
-                        panic!("expected opcode for {op:?}")
+                if matches!(&op.token_type, TokenType::And) {
+                    let jump = self.emit_jump(OpCode::JumpIfFalse, op.span.clone());
+                    self.chunk.add_code(OpCode::Pop, op.span.clone());
+                    self.expr_bp(r_bp)?;
+                    self.patch_jump(jump);
+                } else if matches!(&op.token_type, TokenType::Or) {
+                    let else_jump = self.emit_jump(OpCode::JumpIfFalse, op.span.clone());
+                    let end_jump = self.emit_jump(OpCode::Jump, op.span.clone());
+                    self.patch_jump(else_jump);
+                    self.chunk.add_code(OpCode::Pop, op.span.clone());
+                    self.expr_bp(r_bp)?;
+                    self.patch_jump(end_jump);
+                } else {
+                    let opcodes: &[OpCode] = match op.token_type {
+                        TokenType::Minus => &[OpCode::Subtract],
+                        TokenType::Plus => &[OpCode::Add],
+                        TokenType::Slash => &[OpCode::Divide],
+                        TokenType::Star => &[OpCode::Multiply],
+                        TokenType::Less => &[OpCode::Less],
+                        TokenType::Greater => &[OpCode::Greater],
+                        TokenType::EqualEqual => &[OpCode::Equal],
+                        TokenType::GreaterEqual => &[OpCode::Less, OpCode::Not],
+                        TokenType::LessEqual => &[OpCode::Less, OpCode::Not],
+                        TokenType::BangEqual => &[OpCode::Equal, OpCode::Not],
+                        _ => {
+                            panic!("expected opcode for {op:?}")
+                        }
+                    };
+                    self.expr_bp(r_bp)?;
+                    for code in opcodes.iter().cloned() {
+                        self.chunk.add_code(code, op.span.clone());
                     }
-                };
-                self.expr_bp(r_bp)?;
-                for code in opcodes.iter().cloned() {
-                    self.chunk.add_code(code, op.span.clone());
                 }
             } else {
                 break;
