@@ -7,6 +7,7 @@ pub(super) fn format_chunk(chunk: &Chunk, f: &mut impl Write) {
 
     while offset < chunk.code.len() {
         offset = format_instruction(chunk, offset, f);
+        writeln!(f).unwrap();
     }
 }
 
@@ -31,7 +32,7 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
 
 fn simple_instruction(instruction: OpCode, offset: usize, f: &mut impl Write) -> usize {
     let instruction = format!("{instruction:?}");
-    writeln!(f, "{instruction:>16}").unwrap();
+    write!(f, "{instruction:>16}").unwrap();
     offset + 1
 }
 
@@ -48,7 +49,7 @@ fn constant_instruction(
     let const_index = u16::from_le_bytes(const_index_bytes);
     let value = &chunk.constants[const_index as usize];
     let instruction = format!("{instruction:?}");
-    writeln!(f, "{instruction:>16} {const_index:>4} {value:?}").unwrap();
+    write!(f, "{instruction:>16} {const_index:>4} {value:?}").unwrap();
     offset + 3
 }
 
@@ -63,6 +64,6 @@ fn byte_instruction(
         .unwrap();
     let stack_index = u16::from_le_bytes(stack_index_bytes);
     let instruction = format!("{instruction:?}");
-    writeln!(f, "{instruction:>16} {stack_index:>4}").unwrap();
+    write!(f, "{instruction:>16} {stack_index:>4}").unwrap();
     offset + 3
 }

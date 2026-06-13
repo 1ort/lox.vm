@@ -1,4 +1,9 @@
-use crate::{chunk::Chunk, interner::Interner, opcode::OpCode, value::Value};
+use crate::{
+    chunk::{Chunk, debug::format_instruction},
+    interner::Interner,
+    opcode::OpCode,
+    value::Value,
+};
 use std::{collections::HashMap, rc::Rc};
 
 const STACK_MAX: usize = 256;
@@ -55,8 +60,19 @@ impl<'a> VM {
 
         loop {
             if self.ip >= bytes.len() {
+                if cfg!(feature = "debug_vm") {
+                    println!("{:?}", &self.stack);
+                }
                 break;
             }
+
+            if cfg!(feature = "debug_vm") {
+                let mut buff = String::new();
+                format_instruction(chunk, self.ip, &mut buff);
+                let stack = &self.stack;
+                println!("{buff:<60} | {:?}", &stack);
+            }
+
             let opcode: OpCode = self.next(bytes).into();
             match opcode {
                 OpCode::Pass => {}
@@ -175,11 +191,6 @@ impl<'a> VM {
                     let offset = self.next_double(bytes);
                     self.ip -= offset as usize;
                 }
-            }
-
-            if cfg!(feature = "debug_vm") {
-                let stack = &self.stack;
-                println!("{:?}", &stack);
             }
         }
         Ok(Value::Nil)
