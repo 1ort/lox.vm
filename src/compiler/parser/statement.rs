@@ -92,7 +92,7 @@ impl<'a> Parser<'a> {
             TokenType::While => self.while_statement(),
             TokenType::For => self.for_statement(),
             TokenType::Break => self.break_statement(),
-            //TokenType::Continue => self.contine_statement(),
+            TokenType::Continue => self.continue_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -135,6 +135,7 @@ impl<'a> Parser<'a> {
         let enclosing_loop = self.loop_context.replace(LoopContext {
             stack_depth_at_start: self.locals.len(),
             break_patches: Vec::new(),
+            loop_start: self.chunk.code.len(),
         });
         let result = {
             let while_tok = self.next()?;
@@ -176,6 +177,7 @@ impl<'a> Parser<'a> {
         let enclosing_loop = self.loop_context.replace(LoopContext {
             stack_depth_at_start: self.locals.len(),
             break_patches: Vec::new(),
+            loop_start: self.chunk.code.len(),
         });
         let compile_result = {
             let mut loop_start = self.chunk.code.len();
@@ -201,6 +203,10 @@ impl<'a> Parser<'a> {
 
                 self.emit_loop(loop_start, for_tok.span.clone());
                 loop_start = increment_start;
+                self.loop_context
+                    .as_mut()
+                    .expect("loop context should exist inside for loop")
+                    .loop_start = increment_start;
                 self.patch_jump(body_jump);
             }
             self.expect_token(TokenType::RightParen, "Expect ')' after for clauses.")?;
@@ -249,6 +255,26 @@ impl<'a> Parser<'a> {
         }
         let jump = self.emit_jump(OpCode::Jump, break_tok.span.clone());
         ctx.break_patches.push(jump);
+        self.loop_context.replace(ctx);
+        self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
+        Ok(())
+    }
+
+    fn continue_statement(&mut self) -> Result<(), SyntaxError> {
+        let continue_tok = self.next()?;
+        if self.loop_context.is_none() {
+            return Err(SyntaxError {
+                message: "'continue' outside loop.".to_owned(),
+                span: continue_tok.span,
+            });
+        }
+        let ctx = self.loop_context.take().expect("None should be checked");
+
+        let delta_depth = self.locals.len() - ctx.stack_depth_at_start;
+        for _ in 0..delta_depth {
+            self.chunk.add_code(OpCode::Pop, continue_tok.span.clone());
+        }
+        self.emit_loop(ctx.loop_start, continue_tok.span.clone());
         self.loop_context.replace(ctx);
         self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
         Ok(())
