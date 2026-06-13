@@ -116,6 +116,7 @@ impl<'a> Lexer<'a> {
                 "true" => TokenType::True,
                 "while" => TokenType::While,
                 "break" => TokenType::Break,
+                "continue" => TokenType::Continue,
                 _ => TokenType::Identifier,
             },
             span: token_start..self.pos,

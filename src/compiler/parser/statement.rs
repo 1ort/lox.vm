@@ -1,6 +1,7 @@
 use super::Identifier;
 use super::Parser;
 use super::SyntaxError;
+use crate::compiler::parser::LoopContext;
 use crate::compiler::token::TokenType;
 use crate::opcode::OpCode;
 
@@ -90,6 +91,8 @@ impl<'a> Parser<'a> {
             TokenType::If => self.if_statement(),
             TokenType::While => self.while_statement(),
             TokenType::For => self.for_statement(),
+            TokenType::Break => self.break_statement(),
+            TokenType::Continue => self.contine_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -127,67 +130,159 @@ impl<'a> Parser<'a> {
     }
 
     fn while_statement(&mut self) -> Result<(), SyntaxError> {
-        let while_tok = self.next()?;
-        self.expect_token(TokenType::LeftParen, "Expect '(' after 'while'.")?;
-        let loop_start = self.chunk.code.len();
-        self.expression()?;
-        self.expect_token(TokenType::RightParen, "Expect ')' after condition.")?;
-        let skip_jump = self.emit_jump(OpCode::JumpIfFalse, while_tok.span.clone());
-        self.chunk.add_code(OpCode::Pop, while_tok.span.clone());
-        self.statement()?;
-        self.emit_loop(loop_start, while_tok.span);
-        self.patch_jump(skip_jump);
-        Ok(())
+        let enclosing_loop = self.loop_conext.replace(LoopContext {
+            depth: self.scope_depth,
+            breaks: Vec::new(),
+            continues: Vec::new(),
+        });
+        let result = {
+            let while_tok = self.next()?;
+            self.expect_token(TokenType::LeftParen, "Expect '(' after 'while'.")?;
+            let loop_start = self.chunk.code.len();
+            self.expression()?;
+            self.expect_token(TokenType::RightParen, "Expect ')' after condition.")?;
+            let skip_jump = self.emit_jump(OpCode::JumpIfFalse, while_tok.span.clone());
+            self.chunk.add_code(OpCode::Pop, while_tok.span.clone());
+            self.statement()?;
+
+            self.patch_continues();
+
+            self.emit_loop(loop_start, while_tok.span);
+            self.patch_jump(skip_jump);
+
+            self.patch_breaks();
+
+            Ok(())
+        };
+        self.loop_conext = enclosing_loop;
+        result
     }
 
     fn for_statement(&mut self) -> Result<(), SyntaxError> {
-        let for_tok = self.next()?;
-        self.begin_scope();
-        self.expect_token(TokenType::LeftParen, "Expect '(' after 'for'.")?;
+        let enclosing_loop = self.loop_conext.replace(LoopContext {
+            depth: self.scope_depth + 1,
+            breaks: Vec::new(),
+            continues: Vec::new(),
+        });
+        let result = {
+            let for_tok = self.next()?;
+            self.begin_scope();
+            self.expect_token(TokenType::LeftParen, "Expect '(' after 'for'.")?;
 
-        // initializer
-        match self.peek().token_type {
-            TokenType::Semicolon => {
-                self.next()?;
+            // initializer
+            match self.peek().token_type {
+                TokenType::Semicolon => {
+                    self.next()?;
+                }
+                TokenType::Var => self.var_declaration()?,
+                _ => self.expression_statement()?,
             }
-            TokenType::Var => self.var_declaration()?,
-            _ => self.expression_statement()?,
-        }
-        let mut loop_start = self.chunk.code.len();
+            let mut loop_start = self.chunk.code.len();
 
-        // condition
-        let exit_jump = if matches!(self.peek().token_type, TokenType::Semicolon) {
-            None
-        } else {
-            self.expression()?;
-            let exit_jump = self.emit_jump(OpCode::JumpIfFalse, for_tok.span.clone());
-            self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
-            Some(exit_jump)
-        };
+            // condition
+            let exit_jump = if matches!(self.peek().token_type, TokenType::Semicolon) {
+                None
+            } else {
+                self.expression()?;
+                let exit_jump = self.emit_jump(OpCode::JumpIfFalse, for_tok.span.clone());
+                self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+                Some(exit_jump)
+            };
 
-        self.expect_token(TokenType::Semicolon, "Expect ';' after condition.")?;
-        // increment
-        if !matches!(self.peek().token_type, TokenType::RightParen) {
-            let body_jump = self.emit_jump(OpCode::Jump, for_tok.span.clone());
-            let increment_start = self.chunk.code.len();
-            self.expression()?;
-            self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+            self.expect_token(TokenType::Semicolon, "Expect ';' after condition.")?;
+            // increment
+            if !matches!(self.peek().token_type, TokenType::RightParen) {
+                let body_jump = self.emit_jump(OpCode::Jump, for_tok.span.clone());
+                let increment_start = self.chunk.code.len();
+                self.expression()?;
+                self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
 
+                self.emit_loop(loop_start, for_tok.span.clone());
+                loop_start = increment_start;
+                self.patch_jump(body_jump);
+            }
+            self.expect_token(TokenType::RightParen, "Expect ')' after for clauses.")?;
+            // body:
+            self.statement()?;
+            self.patch_continues();
             self.emit_loop(loop_start, for_tok.span.clone());
-            loop_start = increment_start;
-            self.patch_jump(body_jump);
-        }
-        self.expect_token(TokenType::RightParen, "Expect ')' after for clauses.")?;
-        // body:
-        self.statement()?;
-        self.emit_loop(loop_start, for_tok.span.clone());
 
-        if let Some(exit_jump) = exit_jump {
-            self.patch_jump(exit_jump);
-            self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+            if let Some(exit_jump) = exit_jump {
+                self.patch_jump(exit_jump);
+                self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+            }
+
+            self.patch_breaks();
+            self.end_scope(&for_tok.span);
+            Ok(())
+        };
+        self.loop_conext = enclosing_loop;
+        result
+    }
+
+    fn patch_breaks(&mut self) {
+        for offset in {
+            if let Some(ref ctx) = self.loop_conext {
+                ctx.breaks.clone()
+            } else {
+                Vec::new()
+            }
+        } {
+            self.patch_jump(offset);
+        }
+    }
+
+    fn patch_continues(&mut self) {
+        for offset in {
+            if let Some(ref ctx) = self.loop_conext {
+                ctx.continues.clone()
+            } else {
+                Vec::new()
+            }
+        } {
+            self.patch_jump(offset);
+        }
+    }
+
+    fn break_statement(&mut self) -> Result<(), SyntaxError> {
+        let break_tok = self.next()?;
+        let jump = self.emit_jump(OpCode::Jump, break_tok.span.clone());
+        let Some(ref mut ctx) = self.loop_conext else {
+            return Err(SyntaxError {
+                message: "'continue' outside loop.".to_owned(),
+                span: break_tok.span,
+            });
+        };
+        ctx.breaks.push(jump);
+        for local in self.locals.iter().rev() {
+            if local.depth <= ctx.depth {
+                break;
+            }
+            self.chunk.add_code(OpCode::Pop, break_tok.span.clone());
         }
 
-        self.end_scope(&for_tok.span);
+        self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
+        Ok(())
+    }
+
+    fn contine_statement(&mut self) -> Result<(), SyntaxError> {
+        let continue_tok = self.next()?;
+        let jump = self.emit_jump(OpCode::Jump, continue_tok.span.clone());
+        let Some(ref mut ctx) = self.loop_conext else {
+            return Err(SyntaxError {
+                message: "'continue' outside loop.".to_owned(),
+                span: continue_tok.span,
+            });
+        };
+        ctx.continues.push(jump);
+        for local in self.locals.iter().rev() {
+            if local.depth <= ctx.depth {
+                break;
+            }
+            self.chunk.add_code(OpCode::Pop, continue_tok.span.clone());
+        }
+
+        self.expect_token(TokenType::Semicolon, "Expect ';' after continue.")?;
         Ok(())
     }
 }

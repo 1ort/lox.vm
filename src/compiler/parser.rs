@@ -26,6 +26,13 @@ pub struct SyntaxError {
     span: Range<usize>,
 }
 
+struct LoopContext {
+    depth: usize,
+    breaks: Vec<usize>,
+    // offsets of continue jumps
+    continues: Vec<usize>,
+}
+
 pub(super) struct Parser<'a> {
     source: &'a str,
     tokens: Peekable<Lexer<'a>>,
@@ -34,6 +41,7 @@ pub(super) struct Parser<'a> {
     locals: Vec<Local>,
     scope_depth: usize,
     errors: Vec<SyntaxError>,
+    loop_conext: Option<LoopContext>,
 }
 
 impl<'a> Parser<'a> {
@@ -51,6 +59,7 @@ impl<'a> Parser<'a> {
             locals: Vec::new(),
             scope_depth: 0,
             errors: Vec::new(),
+            loop_conext: None,
         }
     }
 
