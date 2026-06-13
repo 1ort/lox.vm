@@ -89,6 +89,7 @@ impl<'a> Parser<'a> {
             TokenType::LeftBrace => self.block(),
             TokenType::If => self.if_statement(),
             TokenType::While => self.while_statement(),
+            TokenType::For => self.for_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -127,8 +128,8 @@ impl<'a> Parser<'a> {
 
     fn while_statement(&mut self) -> Result<(), SyntaxError> {
         let while_tok = self.next()?;
-        let loop_start = self.chunk.code.len();
         self.expect_token(TokenType::LeftParen, "Expect '(' after 'while'.")?;
+        let loop_start = self.chunk.code.len();
         self.expression()?;
         self.expect_token(TokenType::RightParen, "Expect ')' after condition.")?;
         let skip_jump = self.emit_jump(OpCode::JumpIfFalse, while_tok.span.clone());
@@ -136,7 +137,57 @@ impl<'a> Parser<'a> {
         self.statement()?;
         self.emit_loop(loop_start, while_tok.span);
         self.patch_jump(skip_jump);
+        Ok(())
+    }
 
+    fn for_statement(&mut self) -> Result<(), SyntaxError> {
+        let for_tok = self.next()?;
+        self.begin_scope();
+        self.expect_token(TokenType::LeftParen, "Expect '(' after 'for'.")?;
+
+        // initializer
+        match self.peek().token_type {
+            TokenType::Semicolon => {
+                self.next()?;
+            }
+            TokenType::Var => self.var_declaration()?,
+            _ => self.expression_statement()?,
+        }
+        let mut loop_start = self.chunk.code.len();
+
+        // condition
+        let exit_jump = if matches!(self.peek().token_type, TokenType::Semicolon) {
+            None
+        } else {
+            self.expression()?;
+            let exit_jump = self.emit_jump(OpCode::JumpIfFalse, for_tok.span.clone());
+            self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+            Some(exit_jump)
+        };
+
+        self.expect_token(TokenType::Semicolon, "Expect ';' after condition.")?;
+        // increment
+        if !matches!(self.peek().token_type, TokenType::RightParen) {
+            let body_jump = self.emit_jump(OpCode::Jump, for_tok.span.clone());
+            let increment_start = self.chunk.code.len();
+            self.expression()?;
+            self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+
+            self.emit_loop(loop_start, for_tok.span.clone());
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+        self.expect_token(TokenType::RightParen, "Expect ')' after for clauses.")?;
+        // body:
+        self.statement()?;
+        self.emit_loop(loop_start, for_tok.span.clone());
+
+        if let Some(exit_jump) = exit_jump {
+            self.patch_jump(exit_jump);
+            self.chunk.add_code(OpCode::Pop, for_tok.span.clone());
+        }
+
+        self.end_scope(&for_tok.span);
         Ok(())
     }
 }
