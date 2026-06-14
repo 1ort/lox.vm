@@ -1,17 +1,268 @@
+use crate::{chunk::Chunk, interner::Interner, opcode::OpCode};
+use lexer::Lexer;
+use std::{iter::Peekable, mem::discriminant, ops::Range, rc::Rc};
+use token::{Token, TokenType};
+
+mod expression;
 mod lexer;
-mod parser;
+mod statement;
 mod token;
 
-use crate::{chunk::Chunk, compiler::parser::SyntaxError, interner::Interner};
-use lexer::Lexer;
-use parser::Parser;
+#[derive(Debug)]
+pub struct SyntaxError {
+    #[expect(unused)]
+    message: String,
+    #[expect(unused)]
+    span: Range<usize>,
+}
 
 pub fn compile(source: &str, interner: &mut Interner) -> Result<Chunk, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
     let mut chunk = Chunk::new();
-    let parser = Parser::new(source, lexer.peekable(), &mut chunk, interner);
-    parser.compile()?;
+    let compiler = Compiler::new(source, lexer.peekable(), &mut chunk, interner);
+    compiler.compile()?;
     Ok(chunk)
+}
+
+#[derive(Clone)]
+struct Identifier {
+    name: Rc<str>,
+    span: Range<usize>,
+}
+
+struct Local {
+    identifier: Identifier,
+    depth: usize,
+    initialized: bool,
+}
+
+struct LoopContext {
+    stack_depth_at_start: usize,
+    break_patches: Vec<usize>,
+    loop_start: usize,
+}
+
+struct Compiler<'a> {
+    source: &'a str,
+    tokens: Peekable<Lexer<'a>>,
+    chunk: &'a mut Chunk,
+    interner: &'a mut Interner,
+    locals: Vec<Local>,
+    scope_depth: usize,
+    errors: Vec<SyntaxError>,
+    loop_context: Option<LoopContext>,
+}
+
+impl<'a> Compiler<'a> {
+    fn new(
+        source: &'a str,
+        tokens: Peekable<Lexer<'a>>,
+        chunk: &'a mut Chunk,
+        interner: &'a mut Interner,
+    ) -> Self {
+        Self {
+            source,
+            tokens,
+            chunk,
+            interner,
+            locals: Vec::new(),
+            scope_depth: 0,
+            errors: Vec::new(),
+            loop_context: None,
+        }
+    }
+
+    fn compile(mut self) -> Result<(), Vec<SyntaxError>> {
+        loop {
+            let next = self.peek();
+            if matches!(next.token_type, TokenType::Eof) {
+                break;
+            }
+            if let Err(err) = self.declaration() {
+                self.errors.push(err);
+                self.synchronize();
+            }
+        }
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(self.errors)
+        }
+    }
+
+    fn lexeme(&self, span: &Range<usize>) -> &'a str {
+        &self.source[span.clone()]
+    }
+
+    fn next(&mut self) -> Result<Token, SyntaxError> {
+        match self
+            .tokens
+            .next()
+            .expect("iterator should not be exhausted")
+        {
+            Token {
+                token_type: TokenType::UnterminatedString,
+                span,
+            } => Err(SyntaxError {
+                message: "Unterminated string".to_owned(),
+                span,
+            }),
+            Token {
+                token_type: TokenType::Unknown,
+                span,
+            } => Err(SyntaxError {
+                message: "Unknown token".to_owned(),
+                span,
+            }),
+            Token {
+                token_type: TokenType::Eof,
+                span,
+            } => Err(SyntaxError {
+                message: "Unexpected EOF".to_owned(),
+                span,
+            }),
+            tok => Ok(tok),
+        }
+    }
+
+    fn peek(&mut self) -> &Token {
+        self.tokens
+            .peek()
+            .expect("iterator should not be exhausted")
+    }
+
+    fn expect_token(
+        &mut self,
+        expected_token_type: TokenType,
+        message: &str,
+    ) -> Result<Token, SyntaxError> {
+        if discriminant(&expected_token_type) == discriminant(&self.peek().token_type) {
+            self.next()
+        } else {
+            Err(SyntaxError {
+                message: message.to_owned(),
+                span: self.peek().span.clone(),
+            })
+        }
+    }
+
+    fn synchronize(&mut self) {
+        if self.tokens.peek().is_none() {
+            return;
+        }
+
+        loop {
+            match self.peek().token_type {
+                TokenType::Semicolon => {
+                    let _ = self.next();
+                    break;
+                }
+                TokenType::Eof
+                | TokenType::Class
+                | TokenType::Var
+                | TokenType::Fun
+                | TokenType::Print
+                | TokenType::Return
+                | TokenType::For
+                | TokenType::While
+                | TokenType::If => break,
+                _ => {
+                    let _ = self.next();
+                }
+            }
+        }
+    }
+
+    fn add_local(&mut self, identifier: &Identifier) -> Result<usize, SyntaxError> {
+        for local in self.locals.iter().rev() {
+            if local.depth < self.scope_depth {
+                break;
+            }
+            if local.identifier.name.eq(&identifier.name) {
+                return Err(SyntaxError {
+                    message: "Already a variable with this name in this scope.".to_owned(),
+                    span: identifier.span.clone(),
+                });
+            }
+        }
+
+        if self.locals.len() < 2usize.pow(16) {
+            let local = Local {
+                identifier: identifier.clone(),
+                depth: self.scope_depth,
+                initialized: false,
+            };
+            self.locals.push(local);
+            Ok(self.locals.len() - 1)
+        } else {
+            panic!("Too many local variables in function.")
+        }
+    }
+
+    fn resolve_local(
+        &mut self,
+        name: &Rc<str>,
+        span: Range<usize>,
+    ) -> Result<Option<u16>, SyntaxError> {
+        for (stack_index, local) in self.locals.iter().enumerate().rev() {
+            if local.identifier.name.eq(name) {
+                if !local.initialized {
+                    return Err(SyntaxError {
+                        message: "Can't read local variable in its own initializer.".to_owned(),
+                        span,
+                    });
+                } else {
+                    return Ok(Some(stack_index as u16));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self, span: &Range<usize>) {
+        while self
+            .locals
+            .last()
+            .is_some_and(|loc| loc.depth == self.scope_depth)
+        {
+            self.locals.pop().expect("locals.last() should be Some()");
+            self.chunk.add_code(OpCode::Pop, span.clone());
+        }
+
+        self.scope_depth -= 1;
+    }
+
+    fn emit_jump(&mut self, opcode: impl Into<u8>, span: Range<usize>) -> usize {
+        self.chunk.add_code(opcode, span.clone());
+        self.chunk.add_code(0xff, span.clone());
+        self.chunk.add_code(0xff, span);
+        self.chunk.code.len() - 2
+    }
+
+    fn emit_loop(&mut self, loop_start: usize, span: Range<usize>) {
+        self.chunk.add_code(OpCode::Loop, span.clone());
+        let jump = self.chunk.code.len() - loop_start + 2;
+        if jump >= 2usize.pow(16) {
+            panic!("Too much code to jump over.")
+        }
+        let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
+        self.chunk.add_code(jump_bytes[0], span.clone());
+        self.chunk.add_code(jump_bytes[1], span);
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.chunk.code.len() - offset - 2;
+        if jump >= 2usize.pow(16) {
+            panic!("Too much code to jump over.")
+        }
+        let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
+        self.chunk.code[offset] = jump_bytes[0];
+        self.chunk.code[offset + 1] = jump_bytes[1];
+    }
 }
 
 #[cfg(test)]

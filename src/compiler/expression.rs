@@ -1,4 +1,4 @@
-use super::Parser;
+use super::Compiler;
 use super::SyntaxError;
 use crate::compiler::token::TokenType;
 use crate::opcode::OpCode;
@@ -30,12 +30,12 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
     Some(bp)
 }
 
-impl<'a> Parser<'a> {
+impl<'a> Compiler<'a> {
     pub(super) fn expression(&mut self) -> Result<(), SyntaxError> {
         self.expr_bp(0)
     }
 
-    pub(super) fn expr_bp(&mut self, min_bp: u8) -> Result<(), SyntaxError> {
+    fn expr_bp(&mut self, min_bp: u8) -> Result<(), SyntaxError> {
         match self.peek().token_type.clone() {
             TokenType::Number => {
                 let span = self.next()?.span;

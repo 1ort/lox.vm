@@ -1,5 +1,11 @@
 use std::ops::Range;
 
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub token_type: TokenType,
+    pub span: Range<usize>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     Eof,
@@ -50,10 +56,4 @@ pub enum TokenType {
     // Invalid tokens
     Unknown,
     UnterminatedString,
-}
-
-#[derive(Debug, Clone)]
-pub struct Token {
-    pub token_type: TokenType,
-    pub span: Range<usize>,
 }

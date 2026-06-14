@@ -1,12 +1,12 @@
+use super::Compiler;
 use super::Identifier;
-use super::Parser;
+use super::LoopContext;
 use super::SyntaxError;
-use crate::compiler::parser::LoopContext;
-use crate::compiler::token::TokenType;
+use super::token::TokenType;
 use crate::opcode::OpCode;
 
-impl<'a> Parser<'a> {
-    pub(crate) fn declaration(&mut self) -> Result<(), SyntaxError> {
+impl<'a> Compiler<'a> {
+    pub(super) fn declaration(&mut self) -> Result<(), SyntaxError> {
         match self.peek().token_type {
             TokenType::Var => self.var_declaration(),
             _ => self.statement(),
