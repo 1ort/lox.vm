@@ -38,14 +38,34 @@ impl<'a> VM {
         self.ip = 0;
     }
 
-    fn next(&mut self, bytes: &[u8]) -> u8 {
+    fn next_byte(&mut self, bytes: &[u8]) -> u8 {
         let byte = bytes[self.ip];
         self.ip += 1;
         byte
     }
 
     fn next_double(&mut self, bytes: &[u8]) -> u16 {
-        u16::from_ne_bytes([self.next(bytes), self.next(bytes)])
+        u16::from_ne_bytes([self.next_byte(bytes), self.next_byte(bytes)])
+    }
+
+    fn push(&mut self, val: impl Into<Value>) {
+        self.stack.push(val.into());
+    }
+
+    fn peek(&self) -> &Value {
+        self.stack.last().expect("Attempt to peek empty stack")
+    }
+
+    fn pop(&mut self) -> Value {
+        self.stack.pop().expect("Attempt to pop empty stack")
+    }
+
+    fn read(&self, index: u16) -> &Value {
+        &self.stack[index as usize]
+    }
+
+    fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
+        &chunk.constants[index as usize]
     }
 
     pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, RuntimeError> {
@@ -73,7 +93,7 @@ impl<'a> VM {
                 println!("{buff:<60} | {:?}", &stack);
             }
 
-            let opcode: OpCode = self.next(bytes).into();
+            let opcode: OpCode = self.next_byte(bytes).into();
             match opcode {
                 OpCode::Pass => {}
                 OpCode::Constant => {
@@ -168,7 +188,7 @@ impl<'a> VM {
                 }
                 OpCode::GetLocal => {
                     let index = self.next_double(bytes);
-                    let value = self.value_at_index(index);
+                    let value = self.read(index);
                     self.push(value.clone());
                 }
                 OpCode::SetLocal => {
@@ -194,26 +214,6 @@ impl<'a> VM {
             }
         }
         Ok(Value::Nil)
-    }
-
-    fn push(&mut self, val: impl Into<Value>) {
-        self.stack.push(val.into());
-    }
-
-    fn pop(&mut self) -> Value {
-        self.stack.pop().expect("Attempt to pop empty stack")
-    }
-
-    fn peek(&self) -> &Value {
-        self.stack.last().expect("Attempt to peek empty stack")
-    }
-
-    fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
-        &chunk.constants[index as usize]
-    }
-
-    fn value_at_index(&self, index: u16) -> &Value {
-        &self.stack[index as usize]
     }
 }
 
