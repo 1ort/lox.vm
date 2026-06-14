@@ -1,20 +1,29 @@
 use crate::{
     chunk::{Chunk, debug::format_instruction},
+    compiler::FunctionObject,
     interner::Interner,
     opcode::OpCode,
     value::Value,
 };
 use std::{collections::HashMap, rc::Rc};
 
-const STACK_MAX: usize = 256;
+const STACK_MAX: usize = u16::MAX as usize;
+const FRAMES_MAX: usize = u16::MAX as usize;
 
 #[derive(Debug)]
 #[expect(unused)]
 pub struct RuntimeError(String);
 
-pub struct VM {
-    stack: Vec<Value>, // TODO: store &Value directly to top of stack
+struct CallFrame {
+    // instruction pointer
     ip: usize,
+    // frame pointer
+    fp: usize,
+}
+
+pub struct VM {
+    stack: Vec<Value>,
+    frames: Vec<CallFrame>,
     globals: HashMap<Rc<str>, Value>,
 }
 
@@ -22,8 +31,8 @@ impl Default for VM {
     fn default() -> Self {
         Self {
             stack: Vec::with_capacity(STACK_MAX),
+            frames: Vec::with_capacity(FRAMES_MAX),
             globals: HashMap::new(),
-            ip: 0,
         }
     }
 }
@@ -35,40 +44,80 @@ impl<'a> VM {
 
     pub fn reset(&mut self) {
         self.stack = Vec::with_capacity(STACK_MAX);
-        self.ip = 0;
+        // self.ip = 0;
+    }
+
+    fn frame(&self) -> &CallFrame {
+        self.frames
+            .last()
+            .expect("at least one stackframe should present")
+    }
+
+    fn frame_mut(&mut self) -> &mut CallFrame {
+        self.frames
+            .last_mut()
+            .expect("at least one stackframe should present")
+    }
+
+    fn enter_frame(&mut self) {
+        self.frames.push(CallFrame {
+            ip: 0,
+            fp: self.stack.len(),
+        });
+    }
+
+    fn exit_frame(&mut self) {
+        let frame = self
+            .frames
+            .pop()
+            .expect("At least one stack frame should exist");
+        debug_assert_eq!(self.stack.len(), frame.fp);
+        //self.stack.truncate(frame.fp);
     }
 
     fn next_byte(&mut self, bytes: &[u8]) -> u8 {
-        let byte = bytes[self.ip];
-        self.ip += 1;
+        let byte = bytes[self.frame().ip];
+        self.frame_mut().ip += 1;
         byte
     }
 
-    fn next_double(&mut self, bytes: &[u8]) -> u16 {
+    fn next_word(&mut self, bytes: &[u8]) -> u16 {
         u16::from_ne_bytes([self.next_byte(bytes), self.next_byte(bytes)])
     }
 
-    fn push(&mut self, val: impl Into<Value>) {
+    fn push_stack(&mut self, val: impl Into<Value>) {
         self.stack.push(val.into());
     }
 
-    fn peek(&self) -> &Value {
+    fn peek_stack(&self) -> &Value {
         self.stack.last().expect("Attempt to peek empty stack")
     }
 
-    fn pop(&mut self) -> Value {
+    fn pop_stack(&mut self) -> Value {
         self.stack.pop().expect("Attempt to pop empty stack")
     }
 
-    fn read(&self, index: u16) -> &Value {
-        &self.stack[index as usize]
+    fn read_stack(&self, index: u16) -> &Value {
+        &self.stack[self.frame().fp + index as usize]
+    }
+
+    fn set_stack(&mut self, index: u16, value: Value) {
+        let index = self.frame().fp + index as usize;
+        self.stack[index] = value;
     }
 
     fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
         &chunk.constants[index as usize]
     }
 
-    pub fn run(&mut self, chunk: &Chunk, interner: &mut Interner) -> Result<Value, RuntimeError> {
+    pub fn run(
+        &mut self,
+        function_object: &FunctionObject,
+        interner: &mut Interner,
+    ) -> Result<Value, RuntimeError> {
+        self.enter_frame();
+        let chunk = &function_object.chunk;
+
         self.reset();
         let bytes: &[u8] = &chunk.code;
 
@@ -79,7 +128,7 @@ impl<'a> VM {
         }
 
         loop {
-            if self.ip >= bytes.len() {
+            if self.frame().ip >= bytes.len() {
                 if cfg!(feature = "debug_vm") {
                     println!("{:?}", &self.stack);
                 }
@@ -88,7 +137,7 @@ impl<'a> VM {
 
             if cfg!(feature = "debug_vm") {
                 let mut buff = String::new();
-                format_instruction(chunk, self.ip, &mut buff);
+                format_instruction(chunk, self.frame().ip, &mut buff);
                 let stack = &self.stack;
                 println!("{buff:<60} | {:?}", &stack);
             }
@@ -97,25 +146,25 @@ impl<'a> VM {
             match opcode {
                 OpCode::Pass => {}
                 OpCode::Constant => {
-                    let index = self.next_double(bytes);
+                    let index = self.next_word(bytes);
                     let val = self.read_const(chunk, index).clone();
-                    self.push(val);
+                    self.push_stack(val);
                 }
                 OpCode::Return => {
-                    let val = self.pop();
+                    let val = self.pop_stack();
                     return Ok(val);
                 }
                 OpCode::Negate => {
-                    let val = (-self.pop()).map_err(RuntimeError)?;
-                    self.push(val);
+                    let val = (-self.pop_stack()).map_err(RuntimeError)?;
+                    self.push_stack(val);
                 }
                 OpCode::Not => {
-                    let val = (!self.pop()).map_err(RuntimeError)?;
-                    self.push(val);
+                    let val = (!self.pop_stack()).map_err(RuntimeError)?;
+                    self.push_stack(val);
                 }
                 OpCode::Add | OpCode::Subtract | OpCode::Multiply | OpCode::Divide => {
-                    let a = self.pop();
-                    let b = self.pop();
+                    let a = self.pop_stack();
+                    let b = self.pop_stack();
                     let res = match opcode {
                         OpCode::Add => match (&a, &b) {
                             (Value::Str(a), Value::Str(b)) => {
@@ -130,40 +179,40 @@ impl<'a> VM {
                         _ => unreachable!(),
                     }
                     .map_err(RuntimeError)?;
-                    self.push(res);
+                    self.push_stack(res);
                 }
-                OpCode::True => self.push(true),
-                OpCode::False => self.push(false),
-                OpCode::Nil => self.push(Value::Nil),
+                OpCode::True => self.push_stack(true),
+                OpCode::False => self.push_stack(false),
+                OpCode::Nil => self.push_stack(Value::Nil),
                 OpCode::Equal | OpCode::Greater | OpCode::Less => {
-                    let a = self.pop();
-                    let b = self.pop();
+                    let a = self.pop_stack();
+                    let b = self.pop_stack();
                     let res = match opcode {
                         OpCode::Equal => b == a,
                         OpCode::Greater => b > a,
                         OpCode::Less => b < a,
                         _ => unreachable!(),
                     };
-                    self.push(res);
+                    self.push_stack(res);
                 }
                 OpCode::Print => {
-                    let value = self.pop();
+                    let value = self.pop_stack();
                     println!("{value}");
                 }
                 OpCode::Pop => {
-                    self.pop();
+                    self.pop_stack();
                 }
                 OpCode::DefineGlobal => {
-                    let index = self.next_double(bytes);
+                    let index = self.next_word(bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
                     };
-                    let value = self.pop();
+                    let value = self.pop_stack();
                     self.globals.insert(Rc::clone(identifier), value);
                 }
                 OpCode::GetGlobal => {
-                    let index = self.next_double(bytes);
+                    let index = self.next_word(bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
@@ -172,44 +221,44 @@ impl<'a> VM {
                     let Some(value) = global else {
                         return Err(RuntimeError(format!("Undefined variable {identifier}")));
                     };
-                    self.push(value.clone());
+                    self.push_stack(value.clone());
                 }
                 OpCode::SetGlobal => {
-                    let index = self.next_double(bytes);
+                    let index = self.next_word(bytes);
                     let name = self.read_const(chunk, index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
                     };
-                    let value = self.peek();
+                    let value = self.peek_stack();
                     if !self.globals.contains_key(identifier) {
                         return Err(RuntimeError(format!("Undefined variable {identifier}")));
                     }
                     self.globals.insert(Rc::clone(identifier), value.clone());
                 }
                 OpCode::GetLocal => {
-                    let index = self.next_double(bytes);
-                    let value = self.read(index);
-                    self.push(value.clone());
+                    let index = self.next_word(bytes);
+                    let value = self.read_stack(index);
+                    self.push_stack(value.clone());
                 }
                 OpCode::SetLocal => {
-                    let index = self.next_double(bytes);
-                    let value = self.peek();
-                    self.stack[index as usize] = value.clone();
+                    let index = self.next_word(bytes);
+                    let value = self.peek_stack();
+                    self.set_stack(index, value.clone());
                 }
                 OpCode::JumpIfFalse => {
-                    let offset = self.next_double(bytes);
-                    let cond: bool = self.peek().into();
+                    let offset = self.next_word(bytes);
+                    let cond: bool = self.peek_stack().into();
                     if !cond {
-                        self.ip += offset as usize;
+                        self.frame_mut().ip += offset as usize;
                     }
                 }
                 OpCode::Jump => {
-                    let offset = self.next_double(bytes);
-                    self.ip += offset as usize;
+                    let offset = self.next_word(bytes);
+                    self.frame_mut().ip += offset as usize;
                 }
                 OpCode::Loop => {
-                    let offset = self.next_double(bytes);
-                    self.ip -= offset as usize;
+                    let offset = self.next_word(bytes);
+                    self.frame_mut().ip -= offset as usize;
                 }
             }
         }
@@ -223,9 +272,14 @@ mod tests {
     use crate::chunk::Chunk;
     use crate::value::Value;
 
-    fn run(chunk: &Chunk) -> Result<Value, RuntimeError> {
+    fn run(chunk: Chunk) -> Result<Value, RuntimeError> {
         let mut vm = VM::new();
-        vm.run(chunk, &mut Interner::new())
+        let code_object = FunctionObject {
+            chunk: chunk,
+            arity: 0,
+            name: Rc::from(""),
+        };
+        vm.run(&code_object, &mut Interner::new())
     }
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {
@@ -247,13 +301,13 @@ mod tests {
     #[test]
     fn test_empty_chunk() {
         let chunk = Chunk::new();
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Nil));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Nil));
     }
 
     #[test]
     fn test_constant() {
         let chunk = chunk_with_constant(42.);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(42.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(42.)));
     }
 
     #[test]
@@ -261,13 +315,13 @@ mod tests {
         let mut chunk = Chunk::new();
         chunk.add_const_code(OpCode::Constant, 20., 0..0);
         chunk.add_code(OpCode::Return, 0..0);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(20.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(20.)));
     }
 
     #[test]
     fn test_addition() {
         let chunk = chunk_with_binary_op(5.0, 3.0, OpCode::Add);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(8.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(8.)));
     }
 
     #[test]
@@ -276,25 +330,25 @@ mod tests {
         chunk.add_const_code(OpCode::Constant, 10., 0..0);
         chunk.add_code(OpCode::Negate, 0..0);
         chunk.add_code(OpCode::Return, 0..0);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(-10.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(-10.)));
     }
 
     #[test]
     fn test_multiplication() {
         let chunk = chunk_with_binary_op(2., 4.0, OpCode::Multiply);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(8.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(8.)));
     }
 
     #[test]
     fn test_division() {
         let chunk = chunk_with_binary_op(16., 4., OpCode::Divide);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(4.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(4.)));
     }
 
     #[test]
     fn test_division_by_zero() {
         let chunk = chunk_with_binary_op(16., 0., OpCode::Divide);
-        assert!(run(&chunk).is_err_and(
+        assert!(run(chunk).is_err_and(
             |err| matches!(err, RuntimeError(err) if err.eq("Division by zero.")
             )
         ))
@@ -303,7 +357,7 @@ mod tests {
     #[test]
     fn test_subtraction() {
         let chunk = chunk_with_binary_op(16., 4., OpCode::Subtract);
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(12.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(12.)));
     }
 
     #[test]
@@ -329,6 +383,6 @@ mod tests {
         // 5 / (1/140) == 700
         chunk.add_code(OpCode::Return, span.clone());
 
-        assert!(run(&chunk).is_ok_and(|x| x == Value::Number(700.)));
+        assert!(run(chunk).is_ok_and(|x| x == Value::Number(700.)));
     }
 }

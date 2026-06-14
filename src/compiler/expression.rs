@@ -44,13 +44,15 @@ impl<'a> Compiler<'a> {
                     message: format!("Can not parse number: {err}."),
                     span: span.clone(),
                 })?;
-                self.chunk.add_const_code(OpCode::Constant, value, span);
+                self.current_chunk()
+                    .add_const_code(OpCode::Constant, value, span);
             }
             TokenType::String => {
                 let span = self.next()?.span;
                 let lexeme = self.lexeme(&span);
                 let value: Value = self.interner.intern(lexeme).into();
-                self.chunk.add_const_code(OpCode::Constant, value, span);
+                self.current_chunk()
+                    .add_const_code(OpCode::Constant, value, span);
             }
             TokenType::UnterminatedString => {
                 let span = self.peek().span.clone();
@@ -61,15 +63,15 @@ impl<'a> Compiler<'a> {
             }
             TokenType::True => {
                 let span = self.next()?.span;
-                self.chunk.add_code(OpCode::True, span);
+                self.current_chunk().add_code(OpCode::True, span);
             }
             TokenType::False => {
                 let span = self.next()?.span;
-                self.chunk.add_code(OpCode::False, span);
+                self.current_chunk().add_code(OpCode::False, span);
             }
             TokenType::Nil => {
                 let span = self.next()?.span;
-                self.chunk.add_code(OpCode::Nil, span);
+                self.current_chunk().add_code(OpCode::Nil, span);
             }
             TokenType::LeftParen => {
                 let _ = self.next();
@@ -88,7 +90,7 @@ impl<'a> Compiler<'a> {
                     }
                 };
                 self.expr_bp(r_bp)?;
-                self.chunk.add_code(opcode, token.span);
+                self.current_chunk().add_code(opcode, token.span);
             }
             TokenType::Identifier => {
                 let mut span = self.next()?.span;
@@ -104,8 +106,8 @@ impl<'a> Compiler<'a> {
                         (OpCode::GetLocal, OpCode::GetGlobal)
                     };
                 match local_index {
-                    Some(index) => self.chunk.add_index_code(opcode.0, index, span),
-                    None => self.chunk.add_const_code(opcode.1, name, span),
+                    Some(index) => self.current_chunk().add_index_code(opcode.0, index, span),
+                    None => self.current_chunk().add_const_code(opcode.1, name, span),
                 }
             }
             _ => {
@@ -132,14 +134,14 @@ impl<'a> Compiler<'a> {
                 let op = self.next()?;
                 if matches!(&op.token_type, TokenType::And) {
                     let jump = self.emit_jump(OpCode::JumpIfFalse, op.span.clone());
-                    self.chunk.add_code(OpCode::Pop, op.span.clone());
+                    self.current_chunk().add_code(OpCode::Pop, op.span.clone());
                     self.expr_bp(r_bp)?;
                     self.patch_jump(jump);
                 } else if matches!(&op.token_type, TokenType::Or) {
                     let else_jump = self.emit_jump(OpCode::JumpIfFalse, op.span.clone());
                     let end_jump = self.emit_jump(OpCode::Jump, op.span.clone());
                     self.patch_jump(else_jump);
-                    self.chunk.add_code(OpCode::Pop, op.span.clone());
+                    self.current_chunk().add_code(OpCode::Pop, op.span.clone());
                     self.expr_bp(r_bp)?;
                     self.patch_jump(end_jump);
                 } else {
@@ -160,7 +162,7 @@ impl<'a> Compiler<'a> {
                     };
                     self.expr_bp(r_bp)?;
                     for code in opcodes.iter().cloned() {
-                        self.chunk.add_code(code, op.span.clone());
+                        self.current_chunk().add_code(code, op.span.clone());
                     }
                 }
             } else {

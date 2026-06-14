@@ -34,16 +34,16 @@ fn repl() -> ExitCode {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
-                let chunk = compile(&line, &mut interner);
-                if let Err(errors) = chunk {
+                let function_object = compile(&line, &mut interner);
+                if let Err(errors) = function_object {
                     for error in errors {
                         // TODO: add error formatter
                         eprintln!("{error:?}");
                     }
                     continue;
                 }
-                let chunk = chunk.expect("Chunk should be checked");
-                let result = vm.run(&chunk, &mut interner);
+                let function_object = function_object.expect("Chunk should be checked");
+                let result = vm.run(&function_object, &mut interner);
                 match result {
                     Ok(value) if !value.is_nil() => println!("{value}"),
                     Err(error) => eprintln!("{error:?}"),

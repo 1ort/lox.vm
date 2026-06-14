@@ -16,12 +16,24 @@ pub struct SyntaxError {
     span: Range<usize>,
 }
 
-pub fn compile(source: &str, interner: &mut Interner) -> Result<Chunk, Vec<SyntaxError>> {
+pub fn compile(source: &str, interner: &mut Interner) -> Result<FunctionObject, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
-    let mut chunk = Chunk::new();
-    let compiler = Compiler::new(source, lexer.peekable(), &mut chunk, interner);
+    let mut function_object = FunctionObject {
+        arity: 0,
+        chunk: Chunk::new(),
+        name: interner.intern("script"),
+    };
+
+    let mut tokens = lexer.peekable();
+    let compiler = Compiler::new(
+        source,
+        &mut tokens,
+        &mut function_object,
+        FunctionKind::Script,
+        interner,
+    );
     compiler.compile()?;
-    Ok(chunk)
+    Ok(function_object)
 }
 
 #[derive(Clone)]
@@ -36,17 +48,29 @@ struct Local {
     initialized: bool,
 }
 
+pub struct FunctionObject {
+    pub chunk: Chunk,
+    pub arity: u8,
+    pub name: Rc<str>,
+}
+
 struct LoopContext {
     stack_depth_at_start: usize,
     break_patches: Vec<usize>,
     loop_start: usize,
 }
 
+enum FunctionKind {
+    Function,
+    Script,
+}
+
 struct Compiler<'a> {
     source: &'a str,
-    tokens: Peekable<Lexer<'a>>,
-    chunk: &'a mut Chunk,
+    function_object: &'a mut FunctionObject,
+    tokens: &'a mut Peekable<Lexer<'a>>,
     interner: &'a mut Interner,
+    function_kind: FunctionKind,
     locals: Vec<Local>,
     scope_depth: usize,
     errors: Vec<SyntaxError>,
@@ -56,14 +80,16 @@ struct Compiler<'a> {
 impl<'a> Compiler<'a> {
     fn new(
         source: &'a str,
-        tokens: Peekable<Lexer<'a>>,
-        chunk: &'a mut Chunk,
+        tokens: &'a mut Peekable<Lexer<'a>>,
+        function_object: &'a mut FunctionObject,
+        function_kind: FunctionKind,
         interner: &'a mut Interner,
     ) -> Self {
         Self {
             source,
             tokens,
-            chunk,
+            function_object,
+            function_kind,
             interner,
             locals: Vec::new(),
             scope_depth: 0,
@@ -88,6 +114,22 @@ impl<'a> Compiler<'a> {
         } else {
             Err(self.errors)
         }
+    }
+
+    fn compile_block(mut self) -> Result<(), Vec<SyntaxError>> {
+        if let Err(err) = self.block() {
+            self.errors.push(err);
+        }
+
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(self.errors)
+        }
+    }
+
+    fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.function_object.chunk
     }
 
     fn lexeme(&self, span: &Range<usize>) -> &'a str {
@@ -230,38 +272,38 @@ impl<'a> Compiler<'a> {
             .is_some_and(|loc| loc.depth == self.scope_depth)
         {
             self.locals.pop().expect("locals.last() should be Some()");
-            self.chunk.add_code(OpCode::Pop, span.clone());
+            self.current_chunk().add_code(OpCode::Pop, span.clone());
         }
 
         self.scope_depth -= 1;
     }
 
     fn emit_jump(&mut self, opcode: impl Into<u8>, span: Range<usize>) -> usize {
-        self.chunk.add_code(opcode, span.clone());
-        self.chunk.add_code(0xff, span.clone());
-        self.chunk.add_code(0xff, span);
-        self.chunk.code.len() - 2
+        self.current_chunk().add_code(opcode, span.clone());
+        self.current_chunk().add_code(0xff, span.clone());
+        self.current_chunk().add_code(0xff, span);
+        self.current_chunk().code.len() - 2
     }
 
     fn emit_loop(&mut self, loop_start: usize, span: Range<usize>) {
-        self.chunk.add_code(OpCode::Loop, span.clone());
-        let jump = self.chunk.code.len() - loop_start + 2;
+        self.current_chunk().add_code(OpCode::Loop, span.clone());
+        let jump = self.current_chunk().code.len() - loop_start + 2;
         if jump >= 2usize.pow(16) {
             panic!("Too much code to jump over.")
         }
         let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
-        self.chunk.add_code(jump_bytes[0], span.clone());
-        self.chunk.add_code(jump_bytes[1], span);
+        self.current_chunk().add_code(jump_bytes[0], span.clone());
+        self.current_chunk().add_code(jump_bytes[1], span);
     }
 
     fn patch_jump(&mut self, offset: usize) {
-        let jump = self.chunk.code.len() - offset - 2;
+        let jump = self.current_chunk().code.len() - offset - 2;
         if jump >= 2usize.pow(16) {
             panic!("Too much code to jump over.")
         }
         let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
-        self.chunk.code[offset] = jump_bytes[0];
-        self.chunk.code[offset + 1] = jump_bytes[1];
+        self.current_chunk().code[offset] = jump_bytes[0];
+        self.current_chunk().code[offset + 1] = jump_bytes[1];
     }
 }
 
@@ -307,7 +349,10 @@ mod test {
             let right = &format!("{{{init}{right}}}");
             let chunk_left = compile(left, &mut Interner::default()).unwrap();
             let chunk_right = compile(right, &mut Interner::default()).unwrap();
-            assert_eq!(chunk_left.code, chunk_right.code, "case # {index}")
+            assert_eq!(
+                chunk_left.chunk.code, chunk_right.chunk.code,
+                "case # {index}"
+            )
         }
     }
 }
