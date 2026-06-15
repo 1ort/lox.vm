@@ -1,6 +1,15 @@
-use crate::{chunk::Chunk, interner::Interner, opcode::OpCode};
+use crate::{
+    chunk::{Chunk, FunctionObject},
+    interner::Interner,
+    opcode::OpCode,
+};
 use lexer::Lexer;
-use std::{iter::Peekable, mem::discriminant, ops::Range, rc::Rc};
+use std::{
+    iter::Peekable,
+    mem::{self, discriminant},
+    ops::Range,
+    rc::Rc,
+};
 use token::{Token, TokenType};
 
 mod expression;
@@ -18,16 +27,15 @@ pub struct SyntaxError {
 
 pub fn compile(source: &str, interner: &mut Interner) -> Result<FunctionObject, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
-    let mut function_object = FunctionObject {
+    let function_object = FunctionObject {
         arity: 0,
         chunk: Chunk::new(),
         name: interner.intern("script"),
     };
 
     let mut tokens = lexer.peekable();
-    let compiler = Compiler::new(source, &mut tokens, &mut function_object, interner);
-    compiler.compile()?;
-    Ok(function_object)
+    let compiler = Compiler::new(source, &mut tokens, function_object, interner);
+    compiler.compile()
 }
 
 #[derive(Clone)]
@@ -40,12 +48,6 @@ struct Local {
     identifier: Identifier,
     depth: usize,
     initialized: bool,
-}
-
-pub struct FunctionObject {
-    pub chunk: Chunk,
-    pub arity: u8,
-    pub name: Rc<str>,
 }
 
 struct LoopContext {
@@ -66,9 +68,20 @@ struct CompilerContext {
     loop_context: Option<LoopContext>,
 }
 
+impl CompilerContext {
+    fn new(function_kind: FunctionKind) -> Self {
+        CompilerContext {
+            function_kind,
+            locals: Vec::new(),
+            scope_depth: 0,
+            loop_context: None,
+        }
+    }
+}
+
 struct Compiler<'a> {
     source: &'a str,
-    function_object: &'a mut FunctionObject,
+    function_object: FunctionObject,
     tokens: &'a mut Peekable<Lexer<'a>>,
     interner: &'a mut Interner,
 
@@ -80,25 +93,20 @@ impl<'a> Compiler<'a> {
     fn new(
         source: &'a str,
         tokens: &'a mut Peekable<Lexer<'a>>,
-        function_object: &'a mut FunctionObject,
+        function_object: FunctionObject,
         interner: &'a mut Interner,
     ) -> Self {
         Self {
             source,
             tokens,
-            function_object,
             interner,
             errors: Vec::new(),
-            context: CompilerContext {
-                function_kind: FunctionKind::Script,
-                locals: Vec::new(),
-                scope_depth: 0,
-                loop_context: None,
-            },
+            function_object,
+            context: CompilerContext::new(FunctionKind::Script),
         }
     }
 
-    fn compile(mut self) -> Result<(), Vec<SyntaxError>> {
+    fn compile(mut self) -> Result<FunctionObject, Vec<SyntaxError>> {
         loop {
             let next = self.peek();
             if matches!(next.token_type, TokenType::Eof) {
@@ -110,19 +118,7 @@ impl<'a> Compiler<'a> {
             }
         }
         if self.errors.is_empty() {
-            Ok(())
-        } else {
-            Err(self.errors)
-        }
-    }
-
-    fn compile_block(mut self) -> Result<(), Vec<SyntaxError>> {
-        if let Err(err) = self.block() {
-            self.errors.push(err);
-        }
-
-        if self.errors.is_empty() {
-            Ok(())
+            Ok(self.function_object)
         } else {
             Err(self.errors)
         }

@@ -10,6 +10,7 @@ pub enum Value {
     Str(Rc<str>),
     Bool(bool),
     Nil,
+    Function(Rc<FunctionObject>),
 }
 
 impl Value {
@@ -25,6 +26,10 @@ impl std::fmt::Display for Value {
             Str(val) => write!(f, "{}", val.as_ref()),
             Bool(val) => write!(f, "{val}"),
             Nil => write!(f, "nil"),
+            Function(func) => {
+                let name = func.as_ref().name.as_ref();
+                write!(f, "fun {}", name)
+            }
         }
     }
 }
@@ -47,6 +52,12 @@ impl From<bool> for Value {
     }
 }
 
+impl From<Rc<FunctionObject>> for Value {
+    fn from(value: Rc<FunctionObject>) -> Self {
+        Self::Function(value)
+    }
+}
+
 impl From<Value> for bool {
     fn from(value: Value) -> Self {
         match value {
@@ -54,6 +65,7 @@ impl From<Value> for bool {
             Str(_) => true,
             Bool(x) => x,
             Nil => false,
+            Function(_) => true,
         }
     }
 }
@@ -65,11 +77,14 @@ impl From<&Value> for bool {
             Str(_) => true,
             Bool(x) => *x,
             Nil => false,
+            Function(_) => true,
         }
     }
 }
 
 use Value::*;
+
+use crate::chunk::FunctionObject;
 
 impl Neg for Value {
     type Output = Result<Self, String>;

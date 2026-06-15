@@ -1,6 +1,5 @@
 use crate::{
-    chunk::{Chunk, debug::format_instruction},
-    compiler::FunctionObject,
+    chunk::{Chunk, FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
     value::Value,

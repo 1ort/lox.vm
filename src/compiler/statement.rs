@@ -1,3 +1,4 @@
+use std::mem;
 use std::rc::Rc;
 
 use super::Compiler;
@@ -6,6 +7,7 @@ use super::LoopContext;
 use super::SyntaxError;
 use super::token::TokenType;
 use crate::chunk::Chunk;
+use crate::compiler::CompilerContext;
 use crate::compiler::FunctionKind;
 use crate::compiler::FunctionObject;
 use crate::opcode::OpCode;
@@ -41,75 +43,78 @@ impl<'a> Compiler<'a> {
 
     fn fun_declaration(&mut self) -> Result<(), SyntaxError> {
         let fun_tok = self.next()?;
-        let identifier = self.identifier()?;
-
+        let identifier = self.variable()?;
         if self.context.scope_depth > 0 {
             let index = self.add_local(&identifier)?;
             self.context.locals[index].initialized = true;
-        } else {
+        }
+        let enclosing_function_object = mem::replace(
+            &mut self.function_object,
+            FunctionObject {
+                arity: 0,
+                chunk: Chunk::new(),
+                name: Rc::clone(&identifier.name),
+            },
+        );
+        let enclosing_context = mem::replace(
+            &mut self.context,
+            CompilerContext::new(FunctionKind::Function),
+        );
+        self.begin_scope();
+        let result = self.function_statement();
+        self.end_scope(&fun_tok.span.clone());
+        self.context = enclosing_context;
+        let function_object = mem::replace(&mut self.function_object, enclosing_function_object);
+        result?;
+        self.current_chunk().add_const_code(
+            OpCode::Constant,
+            Rc::new(function_object),
+            fun_tok.span,
+        );
+        if self.context.scope_depth == 0 {
             self.current_chunk().add_const_code(
                 OpCode::DefineGlobal,
-                identifier.name,
+                Rc::clone(&identifier.name),
                 identifier.span,
             );
-        };
-
-        self.expect_token(TokenType::LeftParen, "Expect '(' after function name.")?;
-        self.expect_token(TokenType::RightParen, "Expect ')' after parameters.")?;
-
-        match self.peek().token_type {
-            TokenType::LeftBrace => {
-                todo!()
-            }
-            _ => {
-                return Err(SyntaxError {
-                    message: "Expect '{' before function body.".to_owned(),
-                    span: self.peek().span.clone(),
-                });
-            }
         }
         Ok(())
     }
 
-    // fn function(&mut self, kind: FunctionKind, interned_name: Rc<str>) -> Result<(), SyntaxError> {
-    //     let mut function_object = FunctionObject {
-    //         arity: 0,
-    //         chunk: Chunk::new(),
-    //         name: interned_name,
-    //     };
-    //
-    //     {
-    //         let tokens = self.tokens;
-    //         let mut sub_compiler = Compiler::new(
-    //             self.source,
-    //             tokens,
-    //             &mut function_object,
-    //             kind,
-    //             self.interner,
-    //         );
-    //         sub_compiler.block()?;
-    //         self.tokens = sub_compiler.tokens;
-    //     }
-    //
-    //     self.expect_token(TokenType::LeftParen, "Expect '(' after function name.")?;
-    //     self.expect_token(TokenType::RightParen, "Expect ')' after parameters.")?;
-    //
-    //     match self.peek().token_type {
-    //         TokenType::LeftBrace => {
-    //             todo!()
-    //         }
-    //         _ => {
-    //             return Err(SyntaxError {
-    //                 message: "Expect '{' before function body.".to_owned(),
-    //                 span: self.peek().span.clone(),
-    //             });
-    //         }
-    //     }
-    // }
+    fn function_statement(&mut self) -> Result<(), SyntaxError> {
+        self.expect_token(TokenType::LeftParen, "Expect '(' after function name.")?;
+        if !matches!(self.peek().token_type, TokenType::RightParen) {
+            loop {
+                let param = self.variable()?;
+                self.function_object.arity += 1;
+
+                if self.function_object.arity == 255 {
+                    return Err(SyntaxError {
+                        message: "Can't have more than 255 parameters.".to_owned(),
+                        span: param.span,
+                    });
+                }
+                self.add_local(&param)?;
+                if matches!(self.peek().token_type, TokenType::Comma) {
+                    self.next()?;
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect_token(TokenType::RightParen, "Expect ')' after parameters.")?;
+        if !matches!(self.peek().token_type, TokenType::LeftBrace) {
+            return Err(SyntaxError {
+                message: "Expect '{' before function body.".to_owned(),
+                span: self.peek().span.clone(),
+            });
+        }
+        self.block()
+    }
 
     fn var_declaration(&mut self) -> Result<(), SyntaxError> {
         let var = self.next()?;
-        let identifier = self.identifier()?;
+        let identifier = self.variable()?;
 
         let local_index = if self.context.scope_depth > 0 {
             Some(self.add_local(&identifier)?)
@@ -149,14 +154,22 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn identifier(&mut self) -> Result<Identifier, SyntaxError> {
-        let token = self.expect_token(TokenType::Identifier, "Expect variable name.")?;
+    fn identifier(&mut self, error_message: &str) -> Result<Identifier, SyntaxError> {
+        let token = self.expect_token(TokenType::Identifier, error_message)?;
         let lexeme = &self.source[token.span.clone()];
         let name = self.interner.intern(lexeme);
         Ok(Identifier {
             name,
             span: token.span,
         })
+    }
+
+    fn variable(&mut self) -> Result<Identifier, SyntaxError> {
+        self.identifier("Expect variable name.")
+    }
+
+    fn parameter(&mut self) -> Result<Identifier, SyntaxError> {
+        self.identifier("Expect parameter name.")
     }
 
     fn statement(&mut self) -> Result<(), SyntaxError> {
@@ -168,6 +181,7 @@ impl<'a> Compiler<'a> {
             TokenType::For => self.for_statement(),
             TokenType::Break => self.break_statement(),
             TokenType::Continue => self.continue_statement(),
+            TokenType::Return => self.return_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -372,6 +386,10 @@ impl<'a> Compiler<'a> {
         self.emit_loop(ctx.loop_start, continue_tok.span.clone());
         self.context.loop_context.replace(ctx);
         self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
+        Ok(())
+    }
+
+    fn return_statement(&mut self) -> Result<(), SyntaxError> {
         Ok(())
     }
 }

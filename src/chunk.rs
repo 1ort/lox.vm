@@ -3,8 +3,16 @@ use crate::value::Value;
 use debug::format_chunk;
 use std::fmt::Display;
 use std::ops::Range;
+use std::rc::Rc;
 
 pub mod debug;
+
+#[derive(Debug)]
+pub struct FunctionObject {
+    pub chunk: Chunk,
+    pub arity: u8,
+    pub name: Rc<str>,
+}
 
 #[derive(Debug, Default)]
 pub struct Chunk {
