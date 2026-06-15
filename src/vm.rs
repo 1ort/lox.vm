@@ -15,6 +15,7 @@ const FRAMES_MAX: usize = u16::MAX as usize;
 pub struct RuntimeError(String);
 
 struct CallFrame {
+    //function: &'a FunctionObject,
     // instruction pointer
     ip: usize,
     // frame pointer

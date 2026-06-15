@@ -1,8 +1,13 @@
+use std::rc::Rc;
+
 use super::Compiler;
 use super::Identifier;
 use super::LoopContext;
 use super::SyntaxError;
 use super::token::TokenType;
+use crate::chunk::Chunk;
+use crate::compiler::FunctionKind;
+use crate::compiler::FunctionObject;
 use crate::opcode::OpCode;
 
 impl<'a> Compiler<'a> {
@@ -38,11 +43,24 @@ impl<'a> Compiler<'a> {
         let fun_tok = self.next()?;
         let identifier = self.identifier()?;
 
+        if self.context.scope_depth > 0 {
+            let index = self.add_local(&identifier)?;
+            self.context.locals[index].initialized = true;
+        } else {
+            self.current_chunk().add_const_code(
+                OpCode::DefineGlobal,
+                identifier.name,
+                identifier.span,
+            );
+        };
+
         self.expect_token(TokenType::LeftParen, "Expect '(' after function name.")?;
         self.expect_token(TokenType::RightParen, "Expect ')' after parameters.")?;
 
         match self.peek().token_type {
-            TokenType::LeftBrace => {}
+            TokenType::LeftBrace => {
+                todo!()
+            }
             _ => {
                 return Err(SyntaxError {
                     message: "Expect '{' before function body.".to_owned(),
@@ -53,11 +71,47 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
+    // fn function(&mut self, kind: FunctionKind, interned_name: Rc<str>) -> Result<(), SyntaxError> {
+    //     let mut function_object = FunctionObject {
+    //         arity: 0,
+    //         chunk: Chunk::new(),
+    //         name: interned_name,
+    //     };
+    //
+    //     {
+    //         let tokens = self.tokens;
+    //         let mut sub_compiler = Compiler::new(
+    //             self.source,
+    //             tokens,
+    //             &mut function_object,
+    //             kind,
+    //             self.interner,
+    //         );
+    //         sub_compiler.block()?;
+    //         self.tokens = sub_compiler.tokens;
+    //     }
+    //
+    //     self.expect_token(TokenType::LeftParen, "Expect '(' after function name.")?;
+    //     self.expect_token(TokenType::RightParen, "Expect ')' after parameters.")?;
+    //
+    //     match self.peek().token_type {
+    //         TokenType::LeftBrace => {
+    //             todo!()
+    //         }
+    //         _ => {
+    //             return Err(SyntaxError {
+    //                 message: "Expect '{' before function body.".to_owned(),
+    //                 span: self.peek().span.clone(),
+    //             });
+    //         }
+    //     }
+    // }
+
     fn var_declaration(&mut self) -> Result<(), SyntaxError> {
         let var = self.next()?;
         let identifier = self.identifier()?;
 
-        let local_index = if self.scope_depth > 0 {
+        let local_index = if self.context.scope_depth > 0 {
             Some(self.add_local(&identifier)?)
         } else {
             None
@@ -75,7 +129,7 @@ impl<'a> Compiler<'a> {
         )?;
 
         match local_index {
-            Some(index) => self.locals[index].initialized = true,
+            Some(index) => self.context.locals[index].initialized = true,
             None => self.current_chunk().add_const_code(
                 OpCode::DefineGlobal,
                 identifier.name,
@@ -156,8 +210,8 @@ impl<'a> Compiler<'a> {
 
     fn while_statement(&mut self) -> Result<(), SyntaxError> {
         let loop_start = self.current_chunk().code.len();
-        let enclosing_loop = self.loop_context.replace(LoopContext {
-            stack_depth_at_start: self.locals.len(),
+        let enclosing_loop = self.context.loop_context.replace(LoopContext {
+            stack_depth_at_start: self.context.locals.len(),
             break_patches: Vec::new(),
             loop_start,
         });
@@ -182,7 +236,7 @@ impl<'a> Compiler<'a> {
 
             Ok(())
         };
-        self.loop_context = enclosing_loop;
+        self.context.loop_context = enclosing_loop;
         result
     }
 
@@ -201,8 +255,8 @@ impl<'a> Compiler<'a> {
         }
 
         let loop_start = self.current_chunk().code.len();
-        let enclosing_loop = self.loop_context.replace(LoopContext {
-            stack_depth_at_start: self.locals.len(),
+        let enclosing_loop = self.context.loop_context.replace(LoopContext {
+            stack_depth_at_start: self.context.locals.len(),
             break_patches: Vec::new(),
             loop_start,
         });
@@ -232,7 +286,8 @@ impl<'a> Compiler<'a> {
 
                 self.emit_loop(loop_start, for_tok.span.clone());
                 loop_start = increment_start;
-                self.loop_context
+                self.context
+                    .loop_context
                     .as_mut()
                     .expect("loop context should exist inside for loop")
                     .loop_start = increment_start;
@@ -254,13 +309,13 @@ impl<'a> Compiler<'a> {
             Ok(())
         };
         self.end_scope(&for_tok.span);
-        self.loop_context = enclosing_loop;
+        self.context.loop_context = enclosing_loop;
         compile_result
     }
 
     fn patch_breaks(&mut self) {
         for offset in {
-            if let Some(ref ctx) = self.loop_context {
+            if let Some(ref ctx) = self.context.loop_context {
                 ctx.break_patches.clone()
             } else {
                 Vec::new()
@@ -272,42 +327,50 @@ impl<'a> Compiler<'a> {
 
     fn break_statement(&mut self) -> Result<(), SyntaxError> {
         let break_tok = self.next()?;
-        if self.loop_context.is_none() {
+        if self.context.loop_context.is_none() {
             return Err(SyntaxError {
                 message: "'break' outside loop.".to_owned(),
                 span: break_tok.span,
             });
         }
-        let mut ctx = self.loop_context.take().expect("None should be checked");
-        let delta_depth = self.locals.len() - ctx.stack_depth_at_start;
+        let mut ctx = self
+            .context
+            .loop_context
+            .take()
+            .expect("None should be checked");
+        let delta_depth = self.context.locals.len() - ctx.stack_depth_at_start;
         for _ in 0..delta_depth {
             self.current_chunk()
                 .add_code(OpCode::Pop, break_tok.span.clone());
         }
         let jump = self.emit_jump(OpCode::Jump, break_tok.span.clone());
         ctx.break_patches.push(jump);
-        self.loop_context.replace(ctx);
+        self.context.loop_context.replace(ctx);
         self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
         Ok(())
     }
 
     fn continue_statement(&mut self) -> Result<(), SyntaxError> {
         let continue_tok = self.next()?;
-        if self.loop_context.is_none() {
+        if self.context.loop_context.is_none() {
             return Err(SyntaxError {
                 message: "'continue' outside loop.".to_owned(),
                 span: continue_tok.span,
             });
         }
-        let ctx = self.loop_context.take().expect("None should be checked");
+        let ctx = self
+            .context
+            .loop_context
+            .take()
+            .expect("None should be checked");
 
-        let delta_depth = self.locals.len() - ctx.stack_depth_at_start;
+        let delta_depth = self.context.locals.len() - ctx.stack_depth_at_start;
         for _ in 0..delta_depth {
             self.current_chunk()
                 .add_code(OpCode::Pop, continue_tok.span.clone());
         }
         self.emit_loop(ctx.loop_start, continue_tok.span.clone());
-        self.loop_context.replace(ctx);
+        self.context.loop_context.replace(ctx);
         self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
         Ok(())
     }
