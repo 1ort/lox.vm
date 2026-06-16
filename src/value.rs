@@ -3,6 +3,9 @@ use std::{
     rc::Rc,
 };
 
+use crate::chunk::FunctionObject;
+use Value::*;
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Value {
@@ -16,6 +19,13 @@ pub enum Value {
 impl Value {
     pub fn is_nil(&self) -> bool {
         matches!(self, Value::Nil)
+    }
+
+    pub fn code_object(&self) -> Result<Rc<FunctionObject>, String> {
+        match self {
+            Function(code_object) => Ok(Rc::clone(code_object)),
+            _ => Err("Can only call functions and classes.".into()),
+        }
     }
 }
 
@@ -81,10 +91,6 @@ impl From<&Value> for bool {
         }
     }
 }
-
-use Value::*;
-
-use crate::chunk::FunctionObject;
 
 impl Neg for Value {
     type Output = Result<Self, String>;

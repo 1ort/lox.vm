@@ -25,12 +25,16 @@ pub struct SyntaxError {
     span: Range<usize>,
 }
 
-pub fn compile(source: &str, interner: &mut Interner) -> Result<FunctionObject, Vec<SyntaxError>> {
+pub fn compile(
+    name: &str,
+    source: &str,
+    interner: &mut Interner,
+) -> Result<FunctionObject, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
     let function_object = FunctionObject {
         arity: 0,
         chunk: Chunk::new(),
-        name: interner.intern("script"),
+        name: interner.intern(name),
     };
 
     let mut tokens = lexer.peekable();
@@ -42,6 +46,14 @@ pub fn compile(source: &str, interner: &mut Interner) -> Result<FunctionObject, 
 struct Identifier {
     name: Rc<str>,
     span: Range<usize>,
+}
+impl Identifier {
+    fn empty() -> Identifier {
+        Identifier {
+            name: Rc::from(""),
+            span: 0..0,
+        }
+    }
 }
 
 struct Local {
@@ -107,6 +119,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile(mut self) -> Result<FunctionObject, Vec<SyntaxError>> {
+        self.reserve_first_stack_slot();
         loop {
             let next = self.peek();
             if matches!(next.token_type, TokenType::Eof) {
@@ -126,6 +139,11 @@ impl<'a> Compiler<'a> {
 
     fn current_chunk(&mut self) -> &mut Chunk {
         &mut self.function_object.chunk
+    }
+
+    fn reserve_first_stack_slot(&mut self) {
+        self.add_local(&Identifier::empty())
+            .expect("this should be first local variable in context");
     }
 
     fn lexeme(&self, span: &Range<usize>) -> &'a str {
@@ -347,8 +365,8 @@ mod test {
             let init = "var a;var b;var c;var d;var e;";
             let left = &format!("{{{init}{left}}}");
             let right = &format!("{{{init}{right}}}");
-            let chunk_left = compile(left, &mut Interner::default()).unwrap();
-            let chunk_right = compile(right, &mut Interner::default()).unwrap();
+            let chunk_left = compile("test", left, &mut Interner::default()).unwrap();
+            let chunk_right = compile("test", right, &mut Interner::default()).unwrap();
             assert_eq!(
                 chunk_left.chunk.code, chunk_right.chunk.code,
                 "case # {index}"

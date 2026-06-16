@@ -11,7 +11,13 @@ const FRAMES_MAX: usize = u16::MAX as usize;
 
 #[derive(Debug)]
 #[expect(unused)]
-pub struct RuntimeError(String);
+pub struct RuntimeError(String); // TODO:: add stacktrace
+
+impl From<String> for RuntimeError {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
 
 struct CallFrame {
     //function: &'a FunctionObject,
@@ -25,26 +31,23 @@ pub struct VM {
     stack: Vec<Value>,
     frames: Vec<CallFrame>,
     globals: HashMap<Rc<str>, Value>,
-}
-
-impl Default for VM {
-    fn default() -> Self {
-        Self {
-            stack: Vec::with_capacity(STACK_MAX),
-            frames: Vec::with_capacity(FRAMES_MAX),
-            globals: HashMap::new(),
-        }
-    }
+    interner: Interner,
 }
 
 impl<'a> VM {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(interner: Interner) -> Self {
+        let mut this = Self {
+            stack: Vec::with_capacity(STACK_MAX),
+            frames: Vec::with_capacity(FRAMES_MAX),
+            globals: HashMap::new(),
+            interner,
+        };
+        this.enter_frame(0);
+        this
     }
 
-    pub fn reset(&mut self) {
-        self.stack = Vec::with_capacity(STACK_MAX);
-        // self.ip = 0;
+    pub(super) fn borrow_interner(&mut self) -> &mut Interner {
+        &mut self.interner
     }
 
     fn frame(&self) -> &CallFrame {
@@ -59,10 +62,10 @@ impl<'a> VM {
             .expect("at least one stackframe should present")
     }
 
-    fn enter_frame(&mut self) {
+    fn enter_frame(&mut self, offset: usize) {
         self.frames.push(CallFrame {
             ip: 0,
-            fp: self.stack.len(),
+            fp: self.stack.len() - offset,
         });
     }
 
@@ -89,8 +92,9 @@ impl<'a> VM {
         self.stack.push(val.into());
     }
 
-    fn peek_stack(&self) -> &Value {
-        self.stack.last().expect("Attempt to peek empty stack")
+    fn peek_stack(&self, offset: u16) -> &Value {
+        let index = self.stack.len() - offset as usize;
+        &self.stack[index]
     }
 
     fn pop_stack(&mut self) -> Value {
@@ -110,17 +114,33 @@ impl<'a> VM {
         &chunk.constants[index as usize]
     }
 
-    pub fn run(
+    fn call(
         &mut self,
-        function_object: &FunctionObject,
-        interner: &mut Interner,
-    ) -> Result<Value, RuntimeError> {
-        self.enter_frame();
+        code_object: Rc<FunctionObject>,
+        arg_count: u16,
+    ) -> Result<(), RuntimeError> {
+        if arg_count != code_object.arity as u16 {
+            return Err(format!(
+                "Expected {} arguments but got {}.",
+                code_object.arity, arg_count
+            )
+            .into());
+        }
+        if self.frames.len() >= FRAMES_MAX {
+            return Err("Stack overflow.".to_string().into());
+        }
+
+        self.enter_frame(arg_count as usize + 1);
+        let value = self.run(code_object.as_ref())?;
+        self.push_stack(value);
+
+        self.exit_frame();
+        Ok(())
+    }
+
+    pub fn run(&mut self, function_object: &FunctionObject) -> Result<Value, RuntimeError> {
         let chunk = &function_object.chunk;
-
-        self.reset();
         let bytes: &[u8] = &chunk.code;
-
         if cfg!(feature = "debug_vm") {
             println!("===chunk===");
             print!("{}", chunk);
@@ -169,7 +189,7 @@ impl<'a> VM {
                         OpCode::Add => match (&a, &b) {
                             (Value::Str(a), Value::Str(b)) => {
                                 let concatenated = format!("{b}{a}");
-                                Ok(interner.intern(&concatenated).into())
+                                Ok(self.interner.intern(&concatenated).into())
                             }
                             _ => a + b,
                         },
@@ -229,7 +249,7 @@ impl<'a> VM {
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
                     };
-                    let value = self.peek_stack();
+                    let value = self.peek_stack(0);
                     if !self.globals.contains_key(identifier) {
                         return Err(RuntimeError(format!("Undefined variable {identifier}")));
                     }
@@ -242,12 +262,12 @@ impl<'a> VM {
                 }
                 OpCode::SetLocal => {
                     let index = self.next_word(bytes);
-                    let value = self.peek_stack();
+                    let value = self.peek_stack(0);
                     self.set_stack(index, value.clone());
                 }
                 OpCode::JumpIfFalse => {
                     let offset = self.next_word(bytes);
-                    let cond: bool = self.peek_stack().into();
+                    let cond: bool = self.peek_stack(0).into();
                     if !cond {
                         self.frame_mut().ip += offset as usize;
                     }
@@ -259,6 +279,12 @@ impl<'a> VM {
                 OpCode::Loop => {
                     let offset = self.next_word(bytes);
                     self.frame_mut().ip -= offset as usize;
+                }
+                OpCode::Call => {
+                    let arg_count = self.next_word(bytes);
+                    let callable = self.peek_stack(arg_count);
+                    let code_object = callable.code_object().map_err(RuntimeError)?;
+                    self.call(code_object, arg_count)?;
                 }
             }
         }
@@ -273,13 +299,14 @@ mod tests {
     use crate::value::Value;
 
     fn run(chunk: Chunk) -> Result<Value, RuntimeError> {
-        let mut vm = VM::new();
+        let interner = Interner::new();
+        let mut vm = VM::new(interner);
         let code_object = FunctionObject {
-            chunk: chunk,
+            chunk,
             arity: 0,
             name: Rc::from(""),
         };
-        vm.run(&code_object, &mut Interner::new())
+        vm.run(&code_object)
     }
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {

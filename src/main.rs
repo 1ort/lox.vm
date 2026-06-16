@@ -26,15 +26,15 @@ fn main() -> ExitCode {
 
 fn repl() -> ExitCode {
     let mut rl = DefaultEditor::new().expect("Can not start repl");
-    let mut vm = VM::new();
-    let mut interner = Interner::new();
+    let interner = Interner::new();
+    let mut vm = VM::new(interner);
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
-                let function_object = compile(&line, &mut interner);
+                let function_object = compile("REPL", &line, vm.borrow_interner());
                 if let Err(errors) = function_object {
                     for error in errors {
                         // TODO: add error formatter
@@ -43,7 +43,7 @@ fn repl() -> ExitCode {
                     continue;
                 }
                 let function_object = function_object.expect("Chunk should be checked");
-                let result = vm.run(&function_object, &mut interner);
+                let result = vm.run(&function_object);
                 match result {
                     Ok(value) if !value.is_nil() => println!("{value}"),
                     Err(error) => eprintln!("{error:?}"),

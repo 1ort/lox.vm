@@ -61,6 +61,7 @@ impl<'a> Compiler<'a> {
             CompilerContext::new(FunctionKind::Function),
         );
         self.begin_scope();
+        self.reserve_first_stack_slot();
         let result = self.function_statement();
         self.end_scope(&fun_tok.span.clone());
         self.context = enclosing_context;
@@ -86,6 +87,7 @@ impl<'a> Compiler<'a> {
         if !matches!(self.peek().token_type, TokenType::RightParen) {
             loop {
                 let param = self.variable()?;
+
                 self.function_object.arity += 1;
 
                 if self.function_object.arity == 255 {
@@ -94,7 +96,9 @@ impl<'a> Compiler<'a> {
                         span: param.span,
                     });
                 }
-                self.add_local(&param)?;
+                let local_index = self.add_local(&param)?;
+                self.context.locals[local_index].initialized = true;
+
                 if matches!(self.peek().token_type, TokenType::Comma) {
                     self.next()?;
                 } else {

@@ -27,12 +27,7 @@ pub enum OpCode {
     JumpIfFalse,
     Jump,
     Loop,
-}
-
-impl From<OpCode> for u8 {
-    fn from(value: OpCode) -> Self {
-        value as u8
-    }
+    Call,
 }
 
 impl From<u8> for OpCode {
@@ -63,7 +58,14 @@ impl From<u8> for OpCode {
             22 => JumpIfFalse,
             23 => Jump,
             24 => Loop,
+            25 => Call,
             _ => Pass,
         }
+    }
+}
+
+impl From<OpCode> for u8 {
+    fn from(value: OpCode) -> Self {
+        value as u8
     }
 }
