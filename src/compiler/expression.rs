@@ -1,12 +1,8 @@
-use std::ops::Range;
-
 use super::Compiler;
 use super::SyntaxError;
 use crate::compiler::token::TokenType;
 use crate::opcode::OpCode;
 use crate::value::Value;
-
-pub(super) struct ExpressionSpan(Range<usize>);
 
 fn prefix_binding_power(token_type: &TokenType) -> Option<((), u8)> {
     match token_type {
@@ -36,11 +32,11 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
 }
 
 impl<'a> Compiler<'a> {
-    pub(super) fn expression(&mut self) -> Result<ExpressionSpan, SyntaxError> {
+    pub(super) fn expression(&mut self) -> Result<(), SyntaxError> {
         self.expr_bp(0)
     }
 
-    fn expr_bp(&mut self, min_bp: u8) -> Result<ExpressionSpan, SyntaxError> {
+    fn expr_bp(&mut self, min_bp: u8) -> Result<(), SyntaxError> {
         let span_start = self.peek().span.start;
         match self.peek().token_type.clone() {
             TokenType::Number => {
@@ -132,37 +128,6 @@ impl<'a> Compiler<'a> {
                     span: op.span.clone(),
                 });
             }
-            // if let Some((l_bp, _)) = postfix_binding_power(&op.token_type) {
-            //     if l_bp < min_bp {
-            //         break;
-            //     }
-            //     if matches!(&op.token_type, TokenType::LeftParen) {
-            //         let op = self.next()?;
-            //         let mut arg_count = 0;
-            //         if !matches!(self.peek().token_type, TokenType::RightParen) {
-            //             self.next()?;
-            //             loop {
-            //                 let expr_span = self.expression()?;
-            //                 arg_count += 1;
-            //                 if arg_count > 255 {
-            //                     return Err(SyntaxError {
-            //                         message: "Can't have more than 255 arguments.".to_owned(),
-            //                         span: expr_span.0,
-            //                     });
-            //                 }
-            //                 if matches!(self.peek().token_type, TokenType::Comma) {
-            //                     self.next()?;
-            //                 } else {
-            //                     break;
-            //                 }
-            //             }
-            //         }
-            //         self.expect_token(TokenType::RightParen, "Expect ')' after arguments.")?;
-            //         self.current_chunk()
-            //             .add_index_code(OpCode::Call, arg_count, op.span.clone());
-            //         continue;
-            //     }
-            // }
             if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
                 if l_bp < min_bp {
                     break;
@@ -182,11 +147,10 @@ impl<'a> Compiler<'a> {
                     self.expr_bp(r_bp)?;
                     self.patch_jump(end_jump);
                 } else if matches!(&op.token_type, TokenType::LeftParen) {
-                    let call_span_start = op.span.start;
                     let mut arg_count = 0;
                     if matches!(self.peek().token_type, TokenType::RightParen) {
                         self.next()?;
-                        let span = call_span_start..self.peek().span.start;
+                        let span = span_start..self.peek().span.start;
                         self.current_chunk()
                             .add_index_code(OpCode::Call, arg_count, span);
                         continue;
@@ -202,7 +166,7 @@ impl<'a> Compiler<'a> {
                         }
                     }
                     self.expect_token(TokenType::RightParen, "Expect ')' after arguments.")?;
-                    let span = call_span_start..self.peek().span.start;
+                    let span = span_start..self.peek().span.start;
                     self.current_chunk()
                         .add_index_code(OpCode::Call, arg_count, span);
                 } else {
@@ -230,32 +194,6 @@ impl<'a> Compiler<'a> {
                 break;
             }
         }
-
-        // beginning of next span is ending of current
-        let span_end = self.peek().span.start;
-        Ok(ExpressionSpan(span_start..span_end))
-    }
-
-    fn call_args(&mut self) -> Result<u16, SyntaxError> {
-        let mut arg_count = 0;
-        if !matches!(self.peek().token_type, TokenType::RightParen) {
-            self.next()?;
-            loop {
-                let expr_span = self.expression()?;
-                arg_count += 1;
-                if arg_count == 255 {
-                    return Err(SyntaxError {
-                        message: "Can't have more than 255 arguments.".to_owned(),
-                        span: expr_span.0,
-                    });
-                }
-                if matches!(self.peek().token_type, TokenType::Comma) {
-                    self.next()?;
-                } else {
-                    break;
-                }
-            }
-        }
-        Ok(arg_count)
+        Ok(())
     }
 }

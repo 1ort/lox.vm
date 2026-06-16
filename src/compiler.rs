@@ -4,12 +4,7 @@ use crate::{
     opcode::OpCode,
 };
 use lexer::Lexer;
-use std::{
-    iter::Peekable,
-    mem::{self, discriminant},
-    ops::Range,
-    rc::Rc,
-};
+use std::{iter::Peekable, mem::discriminant, ops::Range, rc::Rc};
 use token::{Token, TokenType};
 
 mod expression;
@@ -74,6 +69,7 @@ enum FunctionKind {
 }
 
 struct CompilerContext {
+    #[expect(unused)]
     function_kind: FunctionKind,
     locals: Vec<Local>,
     scope_depth: usize,

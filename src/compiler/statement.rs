@@ -86,7 +86,7 @@ impl<'a> Compiler<'a> {
         self.expect_token(TokenType::LeftParen, "Expect '(' after function name.")?;
         if !matches!(self.peek().token_type, TokenType::RightParen) {
             loop {
-                let param = self.variable()?;
+                let param = self.parameter()?;
 
                 self.function_object.arity += 1;
 
