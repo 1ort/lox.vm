@@ -177,7 +177,10 @@ impl<'a> Compiler<'a> {
                 message: "Unexpected EOF".to_owned(),
                 span,
             }),
-            tok => Ok(tok),
+            tok => {
+                //println!("{tok:?}");
+                Ok(tok)
+            }
         }
     }
 

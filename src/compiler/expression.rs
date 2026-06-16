@@ -27,18 +27,12 @@ fn infix_binding_power(token_type: &TokenType) -> Option<(u8, u8)> {
         | TokenType::BangEqual => (9, 10),
         TokenType::And => (7, 8),
         TokenType::Or => (5, 6),
+        TokenType::LeftParen => (49, 50),
         _ => {
             return None;
         }
     };
     Some(bp)
-}
-
-fn postfix_binding_power(token_type: &TokenType) -> Option<(u8, ())> {
-    match token_type {
-        TokenType::LeftParen => Some((50, ())),
-        _ => None,
-    }
 }
 
 impl<'a> Compiler<'a> {
@@ -138,19 +132,38 @@ impl<'a> Compiler<'a> {
                     span: op.span.clone(),
                 });
             }
-            if let Some((l_bp, _)) = postfix_binding_power(&op.token_type) {
-                if l_bp < min_bp {
-                    break;
-                }
-                let op = self.next()?;
-
-                if matches!(&op.token_type, TokenType::LeftParen) {
-                    let arg_count = self.call_args()?;
-                    self.current_chunk()
-                        .add_index_code(OpCode::Call, arg_count, op.span.clone());
-                    self.expect_token(TokenType::RightParen, "Expect ')' after parameters.")?;
-                }
-            } else if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
+            // if let Some((l_bp, _)) = postfix_binding_power(&op.token_type) {
+            //     if l_bp < min_bp {
+            //         break;
+            //     }
+            //     if matches!(&op.token_type, TokenType::LeftParen) {
+            //         let op = self.next()?;
+            //         let mut arg_count = 0;
+            //         if !matches!(self.peek().token_type, TokenType::RightParen) {
+            //             self.next()?;
+            //             loop {
+            //                 let expr_span = self.expression()?;
+            //                 arg_count += 1;
+            //                 if arg_count > 255 {
+            //                     return Err(SyntaxError {
+            //                         message: "Can't have more than 255 arguments.".to_owned(),
+            //                         span: expr_span.0,
+            //                     });
+            //                 }
+            //                 if matches!(self.peek().token_type, TokenType::Comma) {
+            //                     self.next()?;
+            //                 } else {
+            //                     break;
+            //                 }
+            //             }
+            //         }
+            //         self.expect_token(TokenType::RightParen, "Expect ')' after arguments.")?;
+            //         self.current_chunk()
+            //             .add_index_code(OpCode::Call, arg_count, op.span.clone());
+            //         continue;
+            //     }
+            // }
+            if let Some((l_bp, r_bp)) = infix_binding_power(&op.token_type) {
                 if l_bp < min_bp {
                     break;
                 }
@@ -168,6 +181,30 @@ impl<'a> Compiler<'a> {
                     self.current_chunk().add_code(OpCode::Pop, op.span.clone());
                     self.expr_bp(r_bp)?;
                     self.patch_jump(end_jump);
+                } else if matches!(&op.token_type, TokenType::LeftParen) {
+                    let call_span_start = op.span.start;
+                    let mut arg_count = 0;
+                    if matches!(self.peek().token_type, TokenType::RightParen) {
+                        self.next()?;
+                        let span = call_span_start..self.peek().span.start;
+                        self.current_chunk()
+                            .add_index_code(OpCode::Call, arg_count, span);
+                        continue;
+                    }
+                    loop {
+                        self.expr_bp(0)?;
+                        arg_count += 1;
+
+                        if matches!(self.peek().token_type, TokenType::Comma) {
+                            self.next()?;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect_token(TokenType::RightParen, "Expect ')' after arguments.")?;
+                    let span = call_span_start..self.peek().span.start;
+                    self.current_chunk()
+                        .add_index_code(OpCode::Call, arg_count, span);
                 } else {
                     let opcodes: &[OpCode] = match op.token_type {
                         TokenType::Minus => &[OpCode::Subtract],

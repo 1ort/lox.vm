@@ -46,6 +46,10 @@ impl<'a> VM {
         this
     }
 
+    fn reset_ip(&mut self) {
+        self.frame_mut().ip = 0;
+    }
+
     pub(super) fn borrow_interner(&mut self) -> &mut Interner {
         &mut self.interner
     }
@@ -70,12 +74,9 @@ impl<'a> VM {
     }
 
     fn exit_frame(&mut self) {
-        let frame = self
-            .frames
+        self.frames
             .pop()
             .expect("At least one stack frame should exist");
-        debug_assert_eq!(self.stack.len(), frame.fp);
-        //self.stack.truncate(frame.fp);
     }
 
     fn next_byte(&mut self, bytes: &[u8]) -> u8 {
@@ -93,7 +94,7 @@ impl<'a> VM {
     }
 
     fn peek_stack(&self, offset: u16) -> &Value {
-        let index = self.stack.len() - offset as usize;
+        let index = self.stack.len() - 1 - offset as usize;
         &self.stack[index]
     }
 
@@ -114,35 +115,12 @@ impl<'a> VM {
         &chunk.constants[index as usize]
     }
 
-    fn call(
-        &mut self,
-        code_object: Rc<FunctionObject>,
-        arg_count: u16,
-    ) -> Result<(), RuntimeError> {
-        if arg_count != code_object.arity as u16 {
-            return Err(format!(
-                "Expected {} arguments but got {}.",
-                code_object.arity, arg_count
-            )
-            .into());
-        }
-        if self.frames.len() >= FRAMES_MAX {
-            return Err("Stack overflow.".to_string().into());
-        }
-
-        self.enter_frame(arg_count as usize + 1);
-        let value = self.run(code_object.as_ref())?;
-        self.push_stack(value);
-
-        self.exit_frame();
-        Ok(())
-    }
-
     pub fn run(&mut self, function_object: &FunctionObject) -> Result<Value, RuntimeError> {
+        self.reset_ip();
         let chunk = &function_object.chunk;
         let bytes: &[u8] = &chunk.code;
         if cfg!(feature = "debug_vm") {
-            println!("===chunk===");
+            println!("==={}===", function_object.name);
             print!("{}", chunk);
             println!("===========");
         }
@@ -150,7 +128,11 @@ impl<'a> VM {
         loop {
             if self.frame().ip >= bytes.len() {
                 if cfg!(feature = "debug_vm") {
-                    println!("{:?}", &self.stack);
+                    print!("[");
+                    for val in &self.stack {
+                        print!("{}, ", val);
+                    }
+                    println!("]");
                 }
                 break;
             }
@@ -158,8 +140,12 @@ impl<'a> VM {
             if cfg!(feature = "debug_vm") {
                 let mut buff = String::new();
                 format_instruction(chunk, self.frame().ip, &mut buff);
-                let stack = &self.stack;
-                println!("{buff:<60} | {:?}", &stack);
+                print!("{buff:<60} | ");
+                print!("[");
+                for val in &self.stack {
+                    print!("{}, ", val);
+                }
+                println!("]");
             }
 
             let opcode: OpCode = self.next_byte(bytes).into();
@@ -281,10 +267,28 @@ impl<'a> VM {
                     self.frame_mut().ip -= offset as usize;
                 }
                 OpCode::Call => {
+                    //println!("{:?}", self.stack);
                     let arg_count = self.next_word(bytes);
                     let callable = self.peek_stack(arg_count);
+                    println!("callable {callable}");
                     let code_object = callable.code_object().map_err(RuntimeError)?;
-                    self.call(code_object, arg_count)?;
+
+                    if arg_count != code_object.arity as u16 {
+                        return Err(format!(
+                            "Expected {} arguments but got {}.",
+                            code_object.arity, arg_count
+                        )
+                        .into());
+                    }
+                    if self.frames.len() >= FRAMES_MAX {
+                        return Err("Stack overflow.".to_string().into());
+                    }
+
+                    self.enter_frame(arg_count as usize + 1);
+                    let value = self.run(code_object.as_ref())?;
+                    self.push_stack(value);
+
+                    self.exit_frame();
                 }
             }
         }
