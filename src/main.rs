@@ -43,7 +43,7 @@ fn repl() -> ExitCode {
                     continue;
                 }
                 let function_object = function_object.expect("Chunk should be checked");
-                let result = vm.run(&function_object);
+                let result = vm.interpret(function_object);
                 match result {
                     Ok(value) if !value.is_nil() => println!("{value}"),
                     Err(error) => eprintln!("{error:?}"),

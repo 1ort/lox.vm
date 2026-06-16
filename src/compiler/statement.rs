@@ -63,7 +63,7 @@ impl<'a> Compiler<'a> {
         self.begin_scope();
         self.reserve_first_stack_slot();
         let result = self.function_statement();
-        self.end_scope(&fun_tok.span.clone());
+        //self.end_scope(&fun_tok.span.clone());
         self.context = enclosing_context;
         let function_object = mem::replace(&mut self.function_object, enclosing_function_object);
         result?;

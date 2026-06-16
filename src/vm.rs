@@ -1,5 +1,5 @@
 use crate::{
-    chunk::{Chunk, FunctionObject, debug::format_instruction},
+    chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
     value::Value,
@@ -19,8 +19,8 @@ impl From<String> for RuntimeError {
     }
 }
 
+#[derive(Debug)]
 struct CallFrame {
-    //function: &'a FunctionObject,
     // instruction pointer
     ip: usize,
     // frame pointer
@@ -36,22 +36,26 @@ pub struct VM {
 
 impl<'a> VM {
     pub fn new(interner: Interner) -> Self {
-        let mut this = Self {
+        Self {
             stack: Vec::with_capacity(STACK_MAX),
             frames: Vec::with_capacity(FRAMES_MAX),
             globals: HashMap::new(),
             interner,
-        };
-        this.enter_frame(0);
-        this
-    }
-
-    fn reset_ip(&mut self) {
-        self.frame_mut().ip = 0;
+        }
     }
 
     pub(super) fn borrow_interner(&mut self) -> &mut Interner {
         &mut self.interner
+    }
+
+    fn reset(&mut self) {
+        self.stack.truncate(0);
+        self.enter_frame(0);
+        self.frame_mut().ip = 0;
+    }
+
+    fn ip(&self) -> usize {
+        self.frame().ip
     }
 
     fn frame(&self) -> &CallFrame {
@@ -67,6 +71,7 @@ impl<'a> VM {
     }
 
     fn enter_frame(&mut self, offset: usize) {
+        println!("enter frame with offset {offset}");
         self.frames.push(CallFrame {
             ip: 0,
             fp: self.stack.len() - offset,
@@ -74,19 +79,33 @@ impl<'a> VM {
     }
 
     fn exit_frame(&mut self) {
-        self.frames
+        let frame = self
+            .frames
             .pop()
-            .expect("At least one stack frame should exist");
+            .expect("At least one stack frame should present");
+        self.stack.truncate(frame.fp);
     }
 
-    fn next_byte(&mut self, bytes: &[u8]) -> u8 {
+    fn current_function(&'a self) -> &'a FunctionObject {
+        let Value::Function(func) = &self.stack[self.frame().fp] else {
+            panic!("Expect FunctionObject at the bottom of stack")
+        };
+        func.as_ref()
+    }
+
+    fn current_bytes(&self) -> &[u8] {
+        &self.current_function().chunk.code
+    }
+
+    fn next_byte(&mut self) -> u8 {
+        let bytes = self.current_bytes();
         let byte = bytes[self.frame().ip];
         self.frame_mut().ip += 1;
         byte
     }
 
-    fn next_word(&mut self, bytes: &[u8]) -> u16 {
-        u16::from_ne_bytes([self.next_byte(bytes), self.next_byte(bytes)])
+    fn next_word(&mut self) -> u16 {
+        u16::from_ne_bytes([self.next_byte(), self.next_byte()])
     }
 
     fn push_stack(&mut self, val: impl Into<Value>) {
@@ -111,22 +130,39 @@ impl<'a> VM {
         self.stack[index] = value;
     }
 
-    fn read_const(&self, chunk: &'a Chunk, index: u16) -> &'a Value {
+    fn read_const(&'a self, index: u16) -> &'a Value {
+        let chunk = &self.current_function().chunk;
         &chunk.constants[index as usize]
     }
 
-    pub fn run(&mut self, function_object: &FunctionObject) -> Result<Value, RuntimeError> {
-        self.reset_ip();
-        let chunk = &function_object.chunk;
-        let bytes: &[u8] = &chunk.code;
+    pub fn interpret(&mut self, function_object: FunctionObject) -> Result<Value, RuntimeError> {
+        self.reset();
+        self.push_stack(Rc::new(function_object));
+        self.debug_chunk();
+        self.run()
+    }
+
+    fn debug_chunk(&self) {
         if cfg!(feature = "debug_vm") {
+            let function_object = self.current_function();
+            let chunk = &function_object.chunk;
             println!("==={}===", function_object.name);
             print!("{}", chunk);
             println!("===========");
         }
+    }
 
+    fn run(&mut self) -> Result<Value, RuntimeError> {
         loop {
-            if self.frame().ip >= bytes.len() {
+            if self.frames.is_empty() {
+                break;
+            }
+
+            println!("{:?}", self.current_function().name);
+            println!("{:?}", self.frames);
+            let bytes = self.current_bytes();
+
+            if self.ip() >= bytes.len() {
                 if cfg!(feature = "debug_vm") {
                     print!("[");
                     for val in &self.stack {
@@ -134,12 +170,14 @@ impl<'a> VM {
                     }
                     println!("]");
                 }
-                break;
+                self.exit_frame();
+                continue;
             }
 
             if cfg!(feature = "debug_vm") {
+                let chunk = &self.current_function().chunk;
                 let mut buff = String::new();
-                format_instruction(chunk, self.frame().ip, &mut buff);
+                format_instruction(chunk, self.ip(), &mut buff);
                 print!("{buff:<60} | ");
                 print!("[");
                 for val in &self.stack {
@@ -148,17 +186,17 @@ impl<'a> VM {
                 println!("]");
             }
 
-            let opcode: OpCode = self.next_byte(bytes).into();
+            let opcode: OpCode = self.next_byte().into();
             match opcode {
                 OpCode::Pass => {}
                 OpCode::Constant => {
-                    let index = self.next_word(bytes);
-                    let val = self.read_const(chunk, index).clone();
+                    let index = self.next_word();
+                    let val = self.read_const(index).clone();
                     self.push_stack(val);
                 }
                 OpCode::Return => {
-                    let val = self.pop_stack();
-                    return Ok(val);
+                    let _ = self.pop_stack();
+                    todo!()
                 }
                 OpCode::Negate => {
                     let val = (-self.pop_stack()).map_err(RuntimeError)?;
@@ -209,17 +247,20 @@ impl<'a> VM {
                     self.pop_stack();
                 }
                 OpCode::DefineGlobal => {
-                    let index = self.next_word(bytes);
-                    let name = self.read_const(chunk, index);
-                    let Value::Str(identifier) = name else {
-                        panic!("Expect identifier to be Str")
+                    let index = self.next_word();
+                    let name = {
+                        let name = self.read_const(index);
+                        let Value::Str(identifier) = name else {
+                            panic!("Expect identifier to be Str")
+                        };
+                        Rc::clone(identifier)
                     };
                     let value = self.pop_stack();
-                    self.globals.insert(Rc::clone(identifier), value);
+                    self.globals.insert(name, value);
                 }
                 OpCode::GetGlobal => {
-                    let index = self.next_word(bytes);
-                    let name = self.read_const(chunk, index);
+                    let index = self.next_word();
+                    let name = self.read_const(index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
                     };
@@ -230,8 +271,8 @@ impl<'a> VM {
                     self.push_stack(value.clone());
                 }
                 OpCode::SetGlobal => {
-                    let index = self.next_word(bytes);
-                    let name = self.read_const(chunk, index);
+                    let index = self.next_word();
+                    let name = self.read_const(index);
                     let Value::Str(identifier) = name else {
                         panic!("Expect identifier to be Str")
                     };
@@ -242,37 +283,37 @@ impl<'a> VM {
                     self.globals.insert(Rc::clone(identifier), value.clone());
                 }
                 OpCode::GetLocal => {
-                    let index = self.next_word(bytes);
+                    let index = self.next_word();
                     let value = self.read_stack(index);
                     self.push_stack(value.clone());
                 }
                 OpCode::SetLocal => {
-                    let index = self.next_word(bytes);
+                    let index = self.next_word();
                     let value = self.peek_stack(0);
                     self.set_stack(index, value.clone());
                 }
                 OpCode::JumpIfFalse => {
-                    let offset = self.next_word(bytes);
+                    let offset = self.next_word();
                     let cond: bool = self.peek_stack(0).into();
                     if !cond {
                         self.frame_mut().ip += offset as usize;
                     }
                 }
                 OpCode::Jump => {
-                    let offset = self.next_word(bytes);
+                    let offset = self.next_word();
                     self.frame_mut().ip += offset as usize;
                 }
                 OpCode::Loop => {
-                    let offset = self.next_word(bytes);
+                    let offset = self.next_word();
                     self.frame_mut().ip -= offset as usize;
                 }
                 OpCode::Call => {
                     //println!("{:?}", self.stack);
-                    let arg_count = self.next_word(bytes);
-                    let callable = self.peek_stack(arg_count);
-                    println!("callable {callable}");
-                    let code_object = callable.code_object().map_err(RuntimeError)?;
-
+                    let arg_count = self.next_word();
+                    let code_object = self
+                        .peek_stack(arg_count)
+                        .code_object()
+                        .map_err(RuntimeError)?;
                     if arg_count != code_object.arity as u16 {
                         return Err(format!(
                             "Expected {} arguments but got {}.",
@@ -283,12 +324,10 @@ impl<'a> VM {
                     if self.frames.len() >= FRAMES_MAX {
                         return Err("Stack overflow.".to_string().into());
                     }
-
                     self.enter_frame(arg_count as usize + 1);
-                    let value = self.run(code_object.as_ref())?;
-                    self.push_stack(value);
-
-                    self.exit_frame();
+                    self.debug_chunk();
+                    //let value = self.run(code_object.as_ref())?;
+                    //self.push_stack(value);
                 }
             }
         }
@@ -310,7 +349,7 @@ mod tests {
             arity: 0,
             name: Rc::from(""),
         };
-        vm.run(&code_object)
+        vm.interpret(code_object)
     }
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {
