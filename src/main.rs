@@ -2,6 +2,7 @@ use crate::compiler::compile;
 use crate::interner::Interner;
 use crate::vm::VM;
 
+mod builtins;
 mod chunk;
 mod compiler;
 mod interner;
@@ -28,6 +29,7 @@ fn repl() -> ExitCode {
     let mut rl = DefaultEditor::new().expect("Can not start repl");
     let interner = Interner::new();
     let mut vm = VM::new(interner);
+    vm.add_builtins(builtins::get_builtins());
     loop {
         let readline = rl.readline(">> ");
         match readline {

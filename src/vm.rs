@@ -1,8 +1,9 @@
 use crate::{
+    builtins::Builtin,
     chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
-    value::{self, Value},
+    value::Value,
 };
 use std::{collections::HashMap, rc::Rc};
 
@@ -44,32 +45,43 @@ impl<'a> VM {
         }
     }
 
+    pub fn add_builtins(&mut self, builtins: Vec<Builtin>) {
+        for builtin in builtins {
+            self.globals
+                .insert(self.interner.intern(builtin.name), builtin.value);
+        }
+    }
+
     pub(super) fn borrow_interner(&mut self) -> &mut Interner {
         &mut self.interner
     }
 
     fn reset(&mut self) {
         self.stack.truncate(0);
+        self.frames.truncate(0);
         self.enter_frame(0);
-        self.frame_mut().ip = 0;
     }
 
+    #[inline(always)]
     fn ip(&self) -> usize {
         self.frame().ip
     }
 
+    #[inline(always)]
     fn frame(&self) -> &CallFrame {
         self.frames
             .last()
             .expect("at least one stackframe should present")
     }
 
+    #[inline(always)]
     fn frame_mut(&mut self) -> &mut CallFrame {
         self.frames
             .last_mut()
             .expect("at least one stackframe should present")
     }
 
+    #[inline(always)]
     fn enter_frame(&mut self, offset: usize) {
         self.frames.push(CallFrame {
             ip: 0,
@@ -77,17 +89,20 @@ impl<'a> VM {
         });
     }
 
-    fn current_function(&'a self) -> &'a FunctionObject {
+    #[inline(always)]
+    fn current_function(&self) -> &FunctionObject {
         let Value::Function(func) = &self.stack[self.frame().fp] else {
             panic!("Expect FunctionObject at the bottom of stack")
         };
         func.as_ref()
     }
 
+    #[inline(always)]
     fn current_bytes(&self) -> &[u8] {
         &self.current_function().chunk.code
     }
 
+    #[inline(always)]
     fn next_byte(&mut self) -> u8 {
         let bytes = self.current_bytes();
         let byte = bytes[self.frame().ip];
@@ -95,44 +110,45 @@ impl<'a> VM {
         byte
     }
 
+    #[inline(always)]
     fn next_word(&mut self) -> u16 {
         u16::from_ne_bytes([self.next_byte(), self.next_byte()])
     }
 
+    #[inline(always)]
     fn push_stack(&mut self, val: impl Into<Value>) {
         self.stack.push(val.into());
     }
 
+    #[inline(always)]
     fn peek_stack(&self, offset: u16) -> &Value {
         let index = self.stack.len() - 1 - offset as usize;
         &self.stack[index]
     }
 
+    #[inline(always)]
     fn pop_stack(&mut self) -> Value {
         self.stack.pop().expect("Attempt to pop empty stack")
     }
 
+    #[inline(always)]
     fn read_stack(&self, index: u16) -> &Value {
         &self.stack[self.frame().fp + index as usize]
     }
 
+    #[inline(always)]
     fn set_stack(&mut self, index: u16, value: Value) {
         let index = self.frame().fp + index as usize;
         self.stack[index] = value;
     }
 
+    #[inline(always)]
     fn read_const(&'a self, index: u16) -> &'a Value {
         let chunk = &self.current_function().chunk;
         &chunk.constants[index as usize]
     }
 
-    pub fn interpret(&mut self, function_object: FunctionObject) -> Result<Value, RuntimeError> {
-        self.reset();
-        self.push_stack(Rc::new(function_object));
-        self.debug_chunk();
-        self.run()
-    }
-
+    #[inline(always)]
     fn debug_chunk(&self) {
         if cfg!(feature = "debug_vm") {
             let function_object = self.current_function();
@@ -143,14 +159,15 @@ impl<'a> VM {
         }
     }
 
+    pub fn interpret(&mut self, function_object: FunctionObject) -> Result<Value, RuntimeError> {
+        self.reset();
+        self.push_stack(Rc::new(function_object));
+        self.debug_chunk();
+        self.run()
+    }
+
     fn run(&mut self) -> Result<Value, RuntimeError> {
         loop {
-            if self.frames.is_empty() {
-                break;
-            }
-
-            //println!("{:?}", self.current_function().name);
-            //println!("{:?}", self.frames);
             let bytes = self.current_bytes();
 
             if self.ip() >= bytes.len() {
@@ -161,8 +178,7 @@ impl<'a> VM {
                     }
                     println!("]");
                 }
-                //self.exit_frame();
-                continue;
+                break;
             }
 
             if cfg!(feature = "debug_vm") {
@@ -307,26 +323,35 @@ impl<'a> VM {
                     self.frame_mut().ip -= offset as usize;
                 }
                 OpCode::Call => {
-                    //println!("{:?}", self.stack);
                     let arg_count = self.next_word();
-                    let code_object = self
-                        .peek_stack(arg_count)
-                        .code_object()
-                        .map_err(RuntimeError)?;
-                    if arg_count != code_object.arity as u16 {
-                        return Err(format!(
-                            "Expected {} arguments but got {}.",
-                            code_object.arity, arg_count
-                        )
-                        .into());
+                    match self.peek_stack(arg_count) {
+                        Value::Function(code_object) => {
+                            if arg_count != code_object.arity as u16 {
+                                return Err(format!(
+                                    "Expected {} arguments but got {}.",
+                                    code_object.arity, arg_count
+                                )
+                                .into());
+                            }
+                            if self.frames.len() >= FRAMES_MAX {
+                                return Err("Stack overflow.".to_string().into());
+                            }
+                            self.enter_frame(arg_count as usize + 1);
+                            self.debug_chunk();
+                        }
+                        Value::NativeFunction(callable) => {
+                            let offset = self.stack.len() - arg_count as usize;
+                            let args = &self.stack[(offset)..];
+                            let result = callable(args).map_err(RuntimeError)?;
+                            self.stack.truncate(offset - 1); // also remove callable from stack
+                            self.push_stack(result);
+                        }
+                        _ => {
+                            return Err(RuntimeError(
+                                "Can only call functions and classes.".into(),
+                            ));
+                        }
                     }
-                    if self.frames.len() >= FRAMES_MAX {
-                        return Err("Stack overflow.".to_string().into());
-                    }
-                    self.enter_frame(arg_count as usize + 1);
-                    self.debug_chunk();
-                    //let value = self.run(code_object.as_ref())?;
-                    //self.push_stack(value);
                 }
             }
         }

@@ -69,7 +69,6 @@ enum FunctionKind {
 }
 
 struct CompilerContext {
-    #[expect(unused)]
     function_kind: FunctionKind,
     locals: Vec<Local>,
     scope_depth: usize,

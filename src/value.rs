@@ -14,6 +14,7 @@ pub enum Value {
     Bool(bool),
     Nil,
     Function(Rc<FunctionObject>),
+    NativeFunction(fn(&[Value]) -> Result<Value, String>),
 }
 
 impl Value {
@@ -40,6 +41,7 @@ impl std::fmt::Display for Value {
                 let name = func.as_ref().name.as_ref();
                 write!(f, "fun {}", name)
             }
+            NativeFunction(_) => write!(f, "native function"),
         }
     }
 }
@@ -71,11 +73,9 @@ impl From<Rc<FunctionObject>> for Value {
 impl From<Value> for bool {
     fn from(value: Value) -> Self {
         match value {
-            Number(_) => true,
-            Str(_) => true,
             Bool(x) => x,
             Nil => false,
-            Function(_) => true,
+            _ => true,
         }
     }
 }
@@ -83,11 +83,9 @@ impl From<Value> for bool {
 impl From<&Value> for bool {
     fn from(value: &Value) -> Self {
         match value {
-            Number(_) => true,
-            Str(_) => true,
             Bool(x) => *x,
             Nil => false,
-            Function(_) => true,
+            _ => true,
         }
     }
 }
@@ -109,7 +107,6 @@ impl Add for Value {
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Number(a), Number(b)) => Ok((a + b).into()),
-            //(Str(a), Str(b)) => Ok((String::from(a.as_ref()) + b.as_ref()).into()),
             _ => Err("Only numbers can be added.".into()),
         }
     }
