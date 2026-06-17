@@ -113,7 +113,10 @@ impl<'a> Compiler<'a> {
                 span: self.peek().span.clone(),
             });
         }
-        self.block()
+        self.block()?;
+        let block_end = self.peek().span.start;
+        self.emit_return(block_end..block_end);
+        Ok(())
     }
 
     fn var_declaration(&mut self) -> Result<(), SyntaxError> {
@@ -394,6 +397,23 @@ impl<'a> Compiler<'a> {
     }
 
     fn return_statement(&mut self) -> Result<(), SyntaxError> {
+        let return_tok = self.next()?;
+
+        if matches!(self.context.function_kind, FunctionKind::Script) {
+            return Err(SyntaxError {
+                message: "Can't return from top-level code.".to_owned(),
+                span: return_tok.span,
+            });
+        }
+
+        if matches!(self.peek().token_type, TokenType::Semicolon) {
+            self.emit_return(return_tok.span);
+        } else {
+            self.expression()?;
+            self.current_chunk()
+                .add_code(OpCode::Return, return_tok.span.clone());
+        }
+        self.expect_token(TokenType::Semicolon, "Expect ';' after return value.")?;
         Ok(())
     }
 }

@@ -2,7 +2,7 @@ use crate::{
     chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
-    value::Value,
+    value::{self, Value},
 };
 use std::{collections::HashMap, rc::Rc};
 
@@ -71,19 +71,10 @@ impl<'a> VM {
     }
 
     fn enter_frame(&mut self, offset: usize) {
-        println!("enter frame with offset {offset}");
         self.frames.push(CallFrame {
             ip: 0,
             fp: self.stack.len() - offset,
         });
-    }
-
-    fn exit_frame(&mut self) {
-        let frame = self
-            .frames
-            .pop()
-            .expect("At least one stack frame should present");
-        self.stack.truncate(frame.fp);
     }
 
     fn current_function(&'a self) -> &'a FunctionObject {
@@ -158,8 +149,8 @@ impl<'a> VM {
                 break;
             }
 
-            println!("{:?}", self.current_function().name);
-            println!("{:?}", self.frames);
+            //println!("{:?}", self.current_function().name);
+            //println!("{:?}", self.frames);
             let bytes = self.current_bytes();
 
             if self.ip() >= bytes.len() {
@@ -170,7 +161,7 @@ impl<'a> VM {
                     }
                     println!("]");
                 }
-                self.exit_frame();
+                //self.exit_frame();
                 continue;
             }
 
@@ -195,8 +186,16 @@ impl<'a> VM {
                     self.push_stack(val);
                 }
                 OpCode::Return => {
-                    let _ = self.pop_stack();
-                    todo!()
+                    let value = self.pop_stack();
+                    let frame = self
+                        .frames
+                        .pop()
+                        .expect("At least one stack frame should present");
+                    if self.frames.is_empty() {
+                        return Ok(value);
+                    }
+                    self.stack.truncate(frame.fp);
+                    self.push_stack(value);
                 }
                 OpCode::Negate => {
                     let val = (-self.pop_stack()).map_err(RuntimeError)?;

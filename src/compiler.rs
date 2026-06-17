@@ -119,6 +119,8 @@ impl<'a> Compiler<'a> {
         loop {
             let next = self.peek();
             if matches!(next.token_type, TokenType::Eof) {
+                let span = next.span.clone();
+                self.emit_return(span);
                 break;
             }
             if let Err(err) = self.declaration() {
@@ -321,6 +323,11 @@ impl<'a> Compiler<'a> {
         let jump_bytes: [u8; 2] = (jump as u16).to_le_bytes();
         self.current_chunk().code[offset] = jump_bytes[0];
         self.current_chunk().code[offset + 1] = jump_bytes[1];
+    }
+
+    fn emit_return(&mut self, span: Range<usize>) {
+        self.current_chunk().add_code(OpCode::Nil, span.clone());
+        self.current_chunk().add_code(OpCode::Return, span.clone());
     }
 }
 
