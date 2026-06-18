@@ -84,18 +84,24 @@ impl<'a> Compiler<'a> {
                 let mut span = self.next()?.span;
                 let lexeme = self.lexeme(&span);
                 let name = self.interner.intern(lexeme);
-                let local_index = self.resolve_local(&name, span.clone())?;
-                let opcode: (OpCode, OpCode) =
+
+                let resolved_variable = self.resolve_variable(&name, span.clone())?;
+                let opcode: OpCode =
                     if matches!(self.peek().token_type, TokenType::Equal) && min_bp == 0 {
                         span = self.next().expect("should be equal token").span;
                         self.expression()?;
-                        (OpCode::SetLocal, OpCode::SetGlobal)
+                        resolved_variable.setter_opcode()
                     } else {
-                        (OpCode::GetLocal, OpCode::GetGlobal)
+                        resolved_variable.getter_opcode()
                     };
-                match local_index {
-                    Some(index) => self.current_chunk().add_index_code(opcode.0, index, span),
-                    None => self.current_chunk().add_const_code(opcode.1, name, span),
+                match resolved_variable {
+                    super::ResolvedVariable::Global => {
+                        self.current_chunk().add_const_code(opcode, name, span)
+                    }
+                    super::ResolvedVariable::Local(index) => {
+                        self.current_chunk().add_index_code(opcode, index, span)
+                    }
+                    super::ResolvedVariable::Upvalue(_) => todo!(),
                 }
             }
             TokenType::Minus | TokenType::Bang => {

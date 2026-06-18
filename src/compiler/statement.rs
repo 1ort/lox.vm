@@ -1,4 +1,3 @@
-use std::mem;
 use std::rc::Rc;
 
 use super::Compiler;
@@ -44,35 +43,30 @@ impl<'a> Compiler<'a> {
     fn fun_declaration(&mut self) -> Result<(), SyntaxError> {
         let fun_tok = self.next()?;
         let identifier = self.variable()?;
-        if self.context.scope_depth > 0 {
+        if self.context().scope_depth > 0 {
             let index = self.add_local(&identifier)?;
-            self.context.locals[index].initialized = true;
+            self.context_mut().locals[index].initialized = true;
         }
-        let enclosing_function_object = mem::replace(
-            &mut self.function_object,
-            FunctionObject {
-                arity: 0,
-                chunk: Chunk::new(),
-                name: Rc::clone(&identifier.name),
-            },
-        );
-        let enclosing_context = mem::replace(
-            &mut self.context,
-            CompilerContext::new(FunctionKind::Function),
-        );
+        let function_object = FunctionObject {
+            arity: 0,
+            chunk: Chunk::new(),
+            name: Rc::clone(&identifier.name),
+        };
+        self.enter_context(CompilerContext::new(
+            function_object,
+            FunctionKind::Function,
+        ));
         self.begin_scope();
         self.reserve_first_stack_slot();
         let result = self.function_statement();
-        //self.end_scope(&fun_tok.span.clone());
-        self.context = enclosing_context;
-        let function_object = mem::replace(&mut self.function_object, enclosing_function_object);
+        let function_object = self.exit_context().function_object;
         result?;
         self.current_chunk().add_const_code(
             OpCode::Constant,
             Rc::new(function_object),
             fun_tok.span,
         );
-        if self.context.scope_depth == 0 {
+        if self.context().scope_depth == 0 {
             self.current_chunk().add_const_code(
                 OpCode::DefineGlobal,
                 Rc::clone(&identifier.name),
@@ -87,17 +81,15 @@ impl<'a> Compiler<'a> {
         if !matches!(self.peek().token_type, TokenType::RightParen) {
             loop {
                 let param = self.parameter()?;
-
-                self.function_object.arity += 1;
-
-                if self.function_object.arity == 255 {
+                self.context_mut().function_object.arity += 1;
+                if self.context().function_object.arity == 255 {
                     return Err(SyntaxError {
                         message: "Can't have more than 255 parameters.".to_owned(),
                         span: param.span,
                     });
                 }
                 let local_index = self.add_local(&param)?;
-                self.context.locals[local_index].initialized = true;
+                self.context_mut().locals[local_index].initialized = true;
 
                 if matches!(self.peek().token_type, TokenType::Comma) {
                     self.next()?;
@@ -123,7 +115,7 @@ impl<'a> Compiler<'a> {
         let var = self.next()?;
         let identifier = self.variable()?;
 
-        let local_index = if self.context.scope_depth > 0 {
+        let local_index = if self.context().scope_depth > 0 {
             Some(self.add_local(&identifier)?)
         } else {
             None
@@ -141,7 +133,7 @@ impl<'a> Compiler<'a> {
         )?;
 
         match local_index {
-            Some(index) => self.context.locals[index].initialized = true,
+            Some(index) => self.context_mut().locals[index].initialized = true,
             None => self.current_chunk().add_const_code(
                 OpCode::DefineGlobal,
                 identifier.name,
@@ -231,11 +223,12 @@ impl<'a> Compiler<'a> {
 
     fn while_statement(&mut self) -> Result<(), SyntaxError> {
         let loop_start = self.current_chunk().code.len();
-        let enclosing_loop = self.context.loop_context.replace(LoopContext {
-            stack_depth_at_start: self.context.locals.len(),
+        let loop_context = LoopContext {
+            stack_depth_at_start: self.context().locals.len(),
             break_patches: Vec::new(),
             loop_start,
-        });
+        };
+        let enclosing_loop = self.context_mut().loop_context.replace(loop_context);
         let result = {
             let while_tok = self.next()?;
             self.expect_token(TokenType::LeftParen, "Expect '(' after 'while'.")?;
@@ -257,7 +250,7 @@ impl<'a> Compiler<'a> {
 
             Ok(())
         };
-        self.context.loop_context = enclosing_loop;
+        self.context_mut().loop_context = enclosing_loop;
         result
     }
 
@@ -276,11 +269,12 @@ impl<'a> Compiler<'a> {
         }
 
         let loop_start = self.current_chunk().code.len();
-        let enclosing_loop = self.context.loop_context.replace(LoopContext {
-            stack_depth_at_start: self.context.locals.len(),
+        let loop_context = LoopContext {
+            stack_depth_at_start: self.context().locals.len(),
             break_patches: Vec::new(),
             loop_start,
-        });
+        };
+        let enclosing_loop = self.context_mut().loop_context.replace(loop_context);
         let compile_result = {
             let mut loop_start = self.current_chunk().code.len();
 
@@ -307,7 +301,7 @@ impl<'a> Compiler<'a> {
 
                 self.emit_loop(loop_start, for_tok.span.clone());
                 loop_start = increment_start;
-                self.context
+                self.context_mut()
                     .loop_context
                     .as_mut()
                     .expect("loop context should exist inside for loop")
@@ -330,13 +324,13 @@ impl<'a> Compiler<'a> {
             Ok(())
         };
         self.end_scope(&for_tok.span);
-        self.context.loop_context = enclosing_loop;
+        self.context_mut().loop_context = enclosing_loop;
         compile_result
     }
 
     fn patch_breaks(&mut self) {
         for offset in {
-            if let Some(ref ctx) = self.context.loop_context {
+            if let Some(ref ctx) = self.context().loop_context {
                 ctx.break_patches.clone()
             } else {
                 Vec::new()
@@ -348,50 +342,50 @@ impl<'a> Compiler<'a> {
 
     fn break_statement(&mut self) -> Result<(), SyntaxError> {
         let break_tok = self.next()?;
-        if self.context.loop_context.is_none() {
+        if self.context().loop_context.is_none() {
             return Err(SyntaxError {
                 message: "'break' outside loop.".to_owned(),
                 span: break_tok.span,
             });
         }
         let mut ctx = self
-            .context
+            .context_mut()
             .loop_context
             .take()
             .expect("None should be checked");
-        let delta_depth = self.context.locals.len() - ctx.stack_depth_at_start;
+        let delta_depth = self.context().locals.len() - ctx.stack_depth_at_start;
         for _ in 0..delta_depth {
             self.current_chunk()
                 .add_code(OpCode::Pop, break_tok.span.clone());
         }
         let jump = self.emit_jump(OpCode::Jump, break_tok.span.clone());
         ctx.break_patches.push(jump);
-        self.context.loop_context.replace(ctx);
+        self.context_mut().loop_context.replace(ctx);
         self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
         Ok(())
     }
 
     fn continue_statement(&mut self) -> Result<(), SyntaxError> {
         let continue_tok = self.next()?;
-        if self.context.loop_context.is_none() {
+        if self.context().loop_context.is_none() {
             return Err(SyntaxError {
                 message: "'continue' outside loop.".to_owned(),
                 span: continue_tok.span,
             });
         }
         let ctx = self
-            .context
+            .context_mut()
             .loop_context
             .take()
             .expect("None should be checked");
 
-        let delta_depth = self.context.locals.len() - ctx.stack_depth_at_start;
+        let delta_depth = self.context().locals.len() - ctx.stack_depth_at_start;
         for _ in 0..delta_depth {
             self.current_chunk()
                 .add_code(OpCode::Pop, continue_tok.span.clone());
         }
         self.emit_loop(ctx.loop_start, continue_tok.span.clone());
-        self.context.loop_context.replace(ctx);
+        self.context_mut().loop_context.replace(ctx);
         self.expect_token(TokenType::Semicolon, "Expect ';' after break.")?;
         Ok(())
     }
@@ -399,7 +393,7 @@ impl<'a> Compiler<'a> {
     fn return_statement(&mut self) -> Result<(), SyntaxError> {
         let return_tok = self.next()?;
 
-        if matches!(self.context.function_kind, FunctionKind::Script) {
+        if matches!(self.context().function_kind, FunctionKind::Script) {
             return Err(SyntaxError {
                 message: "Can't return from top-level code.".to_owned(),
                 span: return_tok.span,

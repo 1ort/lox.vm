@@ -12,6 +12,30 @@ mod lexer;
 mod statement;
 mod token;
 
+enum ResolvedVariable {
+    Local(u16),
+    Upvalue(u16),
+    Global,
+}
+
+impl ResolvedVariable {
+    pub fn setter_opcode(&self) -> OpCode {
+        match self {
+            ResolvedVariable::Local(_) => OpCode::SetLocal,
+            ResolvedVariable::Upvalue(_) => OpCode::SetUpvalue,
+            ResolvedVariable::Global => OpCode::SetGlobal,
+        }
+    }
+
+    pub fn getter_opcode(&self) -> OpCode {
+        match self {
+            ResolvedVariable::Local(_) => OpCode::GetLocal,
+            ResolvedVariable::Upvalue(_) => OpCode::GetUpvalue,
+            ResolvedVariable::Global => OpCode::GetGlobal,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SyntaxError {
     #[expect(unused)]
@@ -69,6 +93,7 @@ enum FunctionKind {
 }
 
 struct CompilerContext {
+    function_object: FunctionObject,
     function_kind: FunctionKind,
     locals: Vec<Local>,
     scope_depth: usize,
@@ -76,8 +101,9 @@ struct CompilerContext {
 }
 
 impl CompilerContext {
-    fn new(function_kind: FunctionKind) -> Self {
+    fn new(function_object: FunctionObject, function_kind: FunctionKind) -> Self {
         CompilerContext {
+            function_object,
             function_kind,
             locals: Vec::new(),
             scope_depth: 0,
@@ -88,12 +114,11 @@ impl CompilerContext {
 
 struct Compiler<'a> {
     source: &'a str,
-    function_object: FunctionObject,
     tokens: &'a mut Peekable<Lexer<'a>>,
     interner: &'a mut Interner,
 
     errors: Vec<SyntaxError>,
-    context: CompilerContext,
+    context_stack: Vec<CompilerContext>,
 }
 
 impl<'a> Compiler<'a> {
@@ -108,8 +133,7 @@ impl<'a> Compiler<'a> {
             tokens,
             interner,
             errors: Vec::new(),
-            function_object,
-            context: CompilerContext::new(FunctionKind::Script),
+            context_stack: vec![CompilerContext::new(function_object, FunctionKind::Script)],
         }
     }
 
@@ -128,14 +152,36 @@ impl<'a> Compiler<'a> {
             }
         }
         if self.errors.is_empty() {
-            Ok(self.function_object)
+            Ok(self.exit_context().function_object)
         } else {
             Err(self.errors)
         }
     }
 
+    fn context(&self) -> &CompilerContext {
+        self.context_stack
+            .last()
+            .expect("at least one context should exist")
+    }
+
+    fn context_mut(&mut self) -> &mut CompilerContext {
+        self.context_stack
+            .last_mut()
+            .expect("at least one context should exist")
+    }
+
+    fn enter_context(&mut self, context: CompilerContext) {
+        self.context_stack.push(context);
+    }
+
+    fn exit_context(&mut self) -> CompilerContext {
+        self.context_stack
+            .pop()
+            .expect("at least one context should exist")
+    }
+
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.function_object.chunk
+        &mut self.context_mut().function_object.chunk
     }
 
     fn reserve_first_stack_slot(&mut self) {
@@ -230,8 +276,8 @@ impl<'a> Compiler<'a> {
     }
 
     fn add_local(&mut self, identifier: &Identifier) -> Result<usize, SyntaxError> {
-        for local in self.context.locals.iter().rev() {
-            if local.depth < self.context.scope_depth {
+        for local in self.context().locals.iter().rev() {
+            if local.depth < self.context().scope_depth {
                 break;
             }
             if local.identifier.name.eq(&identifier.name) {
@@ -242,25 +288,25 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        if self.context.locals.len() < 2usize.pow(16) {
+        if self.context().locals.len() < 2usize.pow(16) {
             let local = Local {
                 identifier: identifier.clone(),
-                depth: self.context.scope_depth,
+                depth: self.context().scope_depth,
                 initialized: false,
             };
-            self.context.locals.push(local);
-            Ok(self.context.locals.len() - 1)
+            self.context_mut().locals.push(local);
+            Ok(self.context().locals.len() - 1)
         } else {
             panic!("Too many local variables in function.")
         }
     }
 
-    fn resolve_local(
+    fn resolve_variable(
         &mut self,
         name: &Rc<str>,
         span: Range<usize>,
-    ) -> Result<Option<u16>, SyntaxError> {
-        for (stack_index, local) in self.context.locals.iter().enumerate().rev() {
+    ) -> Result<ResolvedVariable, SyntaxError> {
+        for (stack_index, local) in self.context().locals.iter().enumerate().rev() {
             if local.identifier.name.eq(name) {
                 if !local.initialized {
                     return Err(SyntaxError {
@@ -268,32 +314,41 @@ impl<'a> Compiler<'a> {
                         span,
                     });
                 } else {
-                    return Ok(Some(stack_index as u16));
+                    return Ok(ResolvedVariable::Local(stack_index as u16));
                 }
             }
         }
-        Ok(None)
+
+        if let Some(ctx) = self.context_stack.get(self.context_stack.len() - 2) {
+            for (stack_index, local) in ctx.locals.iter().enumerate().rev() {
+                if local.identifier.name.eq(name) {
+                    return Ok(ResolvedVariable::Upvalue(stack_index as u16));
+                }
+            }
+        }
+
+        Ok(ResolvedVariable::Global)
     }
 
     fn begin_scope(&mut self) {
-        self.context.scope_depth += 1;
+        self.context_mut().scope_depth += 1;
     }
 
     fn end_scope(&mut self, span: &Range<usize>) {
         while self
-            .context
+            .context()
             .locals
             .last()
-            .is_some_and(|loc| loc.depth == self.context.scope_depth)
+            .is_some_and(|loc| loc.depth == self.context().scope_depth)
         {
-            self.context
+            self.context_mut()
                 .locals
                 .pop()
                 .expect("locals.last() should be Some()");
             self.current_chunk().add_code(OpCode::Pop, span.clone());
         }
 
-        self.context.scope_depth -= 1;
+        self.context_mut().scope_depth -= 1;
     }
 
     fn emit_jump(&mut self, opcode: impl Into<u8>, span: Range<usize>) -> usize {

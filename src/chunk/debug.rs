@@ -26,6 +26,17 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
         GetLocal | SetLocal | JumpIfFalse | Jump | Loop | Call => {
             byte_instruction(instruction, chunk, offset, f)
         }
+        Closure => {
+            let const_index = u16::from_le_bytes(
+                (&chunk.code[(offset + 1)..(offset + 3)])
+                    .try_into()
+                    .unwrap(),
+            );
+            let value = &chunk.constants[const_index as usize];
+            let instruction = format!("{instruction:?}");
+            write!(f, "{instruction:>16} {const_index:>4} {value}").unwrap();
+            offset + 3
+        }
         _ => simple_instruction(instruction, offset, f),
     }
 }
