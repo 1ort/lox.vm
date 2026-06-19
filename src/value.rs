@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     ops::{Add, Div, Mul, Neg, Not, Sub},
     rc::Rc,
 };
@@ -10,7 +9,6 @@ use Value::*;
 #[derive(Clone, Debug)]
 pub struct ClosureObject {
     pub function: Rc<FunctionObject>,
-    pub upvalues: Vec<Rc<RefCell<Value>>>,
 }
 
 #[derive(Clone, Debug)]

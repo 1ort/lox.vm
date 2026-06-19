@@ -51,7 +51,6 @@ impl<'a> Compiler<'a> {
             arity: 0,
             chunk: Chunk::new(),
             name: Rc::clone(&identifier.name),
-            upvalue_count: 0,
         };
         self.enter_context(CompilerContext::new(
             function_object,
@@ -60,24 +59,14 @@ impl<'a> Compiler<'a> {
         self.begin_scope();
         self.reserve_first_stack_slot();
         let result = self.function_statement();
-        let inner_context = self.exit_context();
+        let function_object = self.exit_context().function_object;
         result?;
-
-        let upvalue_count = inner_context.function_object.upvalue_count;
         self.current_chunk().add_const_code(
             OpCode::Constant,
-            Rc::new(inner_context.function_object),
+            Rc::new(function_object),
             fun_tok.span.clone(),
         );
-        self.current_chunk()
-            .add_index_code(OpCode::Closure, upvalue_count, fun_tok.span.clone());
-        for upvalue in &inner_context.upvalues {
-            self.current_chunk()
-                .add_code(upvalue.is_local, fun_tok.span.clone());
-            self.current_chunk()
-                .add_word(upvalue.index, fun_tok.span.clone());
-        }
-
+        self.current_chunk().add_code(OpCode::Closure, fun_tok.span);
         if self.context().scope_depth == 0 {
             self.current_chunk().add_const_code(
                 OpCode::DefineGlobal,

@@ -98,12 +98,10 @@ impl<'a> Compiler<'a> {
                     super::ResolvedVariable::Global => {
                         self.current_chunk().add_const_code(opcode, name, span)
                     }
-                    super::ResolvedVariable::Local(local_index) => self
-                        .current_chunk()
-                        .add_index_code(opcode, local_index, span),
-                    super::ResolvedVariable::Upvalue(upvalue_index) => self
-                        .current_chunk()
-                        .add_index_code(opcode, upvalue_index, span),
+                    super::ResolvedVariable::Local(index) => {
+                        self.current_chunk().add_index_code(opcode, index, span)
+                    }
+                    super::ResolvedVariable::Upvalue(_) => todo!(),
                 }
             }
             TokenType::Minus | TokenType::Bang => {

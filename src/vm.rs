@@ -89,16 +89,11 @@ impl<'a> VM {
         });
     }
 
-    #[inline(always)]
-    fn current_closure(&self) -> &ClosureObject {
-        let Value::Closure(closure) = &self.stack[self.frame().fp] else {
-            panic!("Expect FunctionObject at the bottom of stack")
-        };
-        closure.as_ref()
-    }
+    // fn current_function(&self) -> &FunctionObject {
+    // }
 
     #[inline(always)]
-    fn current_closure_mut(&self) -> &ClosureObject {
+    fn current_closure(&self) -> &ClosureObject {
         let Value::Closure(closure) = &self.stack[self.frame().fp] else {
             panic!("Expect FunctionObject at the bottom of stack")
         };
@@ -171,7 +166,6 @@ impl<'a> VM {
         self.reset();
         let closure = ClosureObject {
             function: Rc::new(function_object),
-            upvalues: Vec::new(),
         };
         self.push_stack(Rc::new(closure));
         self.debug_chunk();
@@ -374,23 +368,11 @@ impl<'a> VM {
                     };
                     let closure = ClosureObject {
                         function: Rc::clone(fun),
-                        upvalues: Vec::new(),
                     };
                     self.push_stack(Rc::new(closure));
                 }
-                OpCode::GetUpvalue => {
-                    let upvalue_index = self.next_word();
-                    let value = (self.current_closure().upvalues[upvalue_index as usize])
-                        .borrow()
-                        .clone();
-                    self.push_stack(value);
-                }
-                OpCode::SetUpvalue => {
-                    let upvalue_index = self.next_word();
-                    let value = self.peek_stack(0);
-                    *self.current_closure().upvalues[upvalue_index as usize].borrow_mut() =
-                        value.clone();
-                }
+                OpCode::GetUpvalue => todo!(),
+                OpCode::SetUpvalue => todo!(),
             }
         }
         Ok(Value::Nil)
@@ -410,7 +392,6 @@ mod tests {
             chunk,
             arity: 0,
             name: Rc::from(""),
-            upvalue_count: 0,
         };
         vm.interpret(code_object)
     }

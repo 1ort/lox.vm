@@ -54,7 +54,6 @@ pub fn compile(
         arity: 0,
         chunk: Chunk::new(),
         name: interner.intern(name),
-        upvalue_count: 0,
     };
 
     let mut tokens = lexer.peekable();
@@ -67,7 +66,6 @@ struct Identifier {
     name: Rc<str>,
     span: Range<usize>,
 }
-
 impl Identifier {
     fn empty() -> Identifier {
         Identifier {
@@ -86,7 +84,7 @@ struct Local {
 #[derive(Clone, PartialEq)]
 struct Upvalue {
     is_local: bool,
-    index: u16,
+    index: usize,
 }
 
 struct LoopContext {
@@ -101,7 +99,6 @@ enum FunctionKind {
 }
 
 struct CompilerContext {
-    enclosing_context: Option<Box<CompilerContext>>,
     function_object: FunctionObject,
     function_kind: FunctionKind,
     locals: Vec<Local>,
@@ -111,13 +108,8 @@ struct CompilerContext {
 }
 
 impl CompilerContext {
-    fn new(
-        enclosing: Option<Box<CompilerContext>>,
-        function_object: FunctionObject,
-        function_kind: FunctionKind,
-    ) -> Self {
+    fn new(function_object: FunctionObject, function_kind: FunctionKind) -> Self {
         CompilerContext {
-            enclosing_context: enclosing,
             function_object,
             function_kind,
             locals: Vec::new(),
@@ -149,11 +141,7 @@ impl<'a> Compiler<'a> {
             tokens,
             interner,
             errors: Vec::new(),
-            context_stack: vec![CompilerContext::new(
-                None,
-                function_object,
-                FunctionKind::Script,
-            )],
+            context_stack: vec![CompilerContext::new(function_object, FunctionKind::Script)],
         }
     }
 
@@ -419,7 +407,7 @@ impl CompilerContext {
             if local.identifier.name.eq(name) {
                 let upvalue = Upvalue {
                     is_local: true,
-                    index: stack_index as u16,
+                    index: stack_index,
                 };
                 return Some(self.add_upvalue(upvalue));
             }
@@ -430,7 +418,7 @@ impl CompilerContext {
             .map(|upvalue_index| {
                 self.add_upvalue(Upvalue {
                     is_local: false,
-                    index: upvalue_index as u16,
+                    index: upvalue_index,
                 })
             })
     }
@@ -442,7 +430,6 @@ impl CompilerContext {
             }
         }
         self.upvalues.push(new_upvalue);
-        self.function_object.upvalue_count += 1;
         self.upvalues.len() - 1
     }
 }
