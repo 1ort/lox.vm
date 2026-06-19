@@ -14,9 +14,9 @@ pub enum ResolvedVariable {
 }
 
 pub(super) struct LoopContext {
-    pub(super) stack_depth_at_start: usize,
-    pub(super) break_patches: Vec<usize>,
-    pub(super) loop_start: usize,
+    stack_depth_at_start: usize,
+    break_patches: Vec<usize>,
+    loop_start: usize,
     enclosing: Option<Box<LoopContext>>,
 }
 
@@ -148,7 +148,7 @@ impl Compiler {
         ctx.enclosing = enclosing.map(Box::new)
     }
 
-    pub(super) fn exit_loop_context(&mut self) -> LoopContext {
+    pub(super) fn exit_loop_context(&mut self) {
         let Some(ref mut ctx) = self.loop_context else {
             panic!("no loop context")
         };
@@ -159,7 +159,6 @@ impl Compiler {
         for break_ in &ctx.break_patches {
             self.patch_jump(*break_);
         }
-        ctx
     }
 
     pub(super) fn compile_break(&mut self, span: Range<usize>) {
