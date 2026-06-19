@@ -30,14 +30,14 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
         }
         Closure => {
             let fun_index = get_word(chunk, offset + 1);
-            let fun = &chunk.constants[fun_index as usize];
-            let Value::Function(fun) = fun else {
-                panic!("Can not debug closure: expected function constant. Got: {fun:?}");
+            let fun_value = &chunk.constants[fun_index as usize];
+            let Value::Function(fun) = fun_value else {
+                panic!("Can not debug closure: expected function constant. Got: {fun_value:?}");
             };
             let mut offset = offset + 3;
 
             let instruction = format!("{instruction:?}");
-            writeln!(f, "{instruction:>16} {fun_index:>4} {fun:?}").unwrap();
+            writeln!(f, "{instruction:>16} {fun_index:>4} {fun_value}").unwrap();
 
             for _ in 0..fun.upvalue_count {
                 let is_local = chunk.code[offset];

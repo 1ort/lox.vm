@@ -1,6 +1,6 @@
 use crate::{
     builtins::Builtin,
-    chunk::{FunctionObject, debug::format_instruction},
+    chunk::debug::format_instruction,
     interner::Interner,
     opcode::OpCode,
     value::{ClosureObject, Value},
@@ -159,9 +159,9 @@ impl<'a> VM {
         }
     }
 
-    pub fn interpret(&mut self, function_object: FunctionObject) -> Result<Value, RuntimeError> {
+    pub fn interpret(&mut self, closure: ClosureObject) -> Result<Value, RuntimeError> {
         self.reset();
-        self.push_stack(Rc::new(function_object));
+        self.push_stack(Rc::new(closure));
         self.debug_chunk();
         self.run()
     }
@@ -386,14 +386,16 @@ impl<'a> VM {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chunk::Chunk;
+    use crate::chunk::{Chunk, FunctionObject};
     use crate::value::Value;
 
     fn run(chunk: Chunk) -> Result<Value, RuntimeError> {
         let interner = Interner::new();
         let mut vm = VM::new(interner);
-        let code_object = FunctionObject::new(&Rc::from(""));
-        vm.interpret(code_object)
+        let mut code_object = FunctionObject::new(&Rc::from(""));
+        code_object.chunk = chunk;
+        let closure = ClosureObject::new(Rc::new(code_object));
+        vm.interpret(closure)
     }
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {

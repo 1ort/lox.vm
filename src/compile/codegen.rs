@@ -1,11 +1,17 @@
 use super::Identifier;
+use crate::chunk::FunctionObject;
 use crate::compile::Compiler;
+use crate::compile::compiler::Upvalue;
 use crate::opcode::OpCode;
 use crate::value::Value;
 use std::ops::Range;
 use std::rc::Rc;
 
 impl Compiler {
+    pub(crate) fn next_ip(&mut self) -> usize {
+        self.current_chunk().code.len()
+    }
+
     pub(crate) fn emit_byte(&mut self, byte: impl Into<u8>, span: Range<usize>) {
         self.current_chunk().add_byte(byte, span);
     }
@@ -68,6 +74,21 @@ impl Compiler {
         self.emit_word(index, span);
     }
 
+    pub(crate) fn emit_closure(
+        &mut self,
+        function: Rc<FunctionObject>,
+        upvalues: &[Upvalue],
+        span: Range<usize>,
+    ) {
+        let index = self.current_chunk().push_constant(function);
+        self.emit_byte(OpCode::Closure, span.clone());
+        self.emit_word(index, span.clone());
+        for upvalue in upvalues {
+            self.emit_byte(upvalue.is_local as u8, span.clone());
+            self.emit_word(upvalue.index, span.clone());
+        }
+    }
+
     pub(crate) fn emit_get_local(&mut self, local_index: u16, span: Range<usize>) {
         self.emit_byte(OpCode::GetLocal, span.clone());
         self.emit_word(local_index, span);
@@ -91,9 +112,5 @@ impl Compiler {
     pub(crate) fn emit_call(&mut self, arg_count: u16, span: Range<usize>) {
         self.emit_byte(OpCode::Call, span.clone());
         self.emit_word(arg_count, span);
-    }
-
-    pub(crate) fn next_ip(&mut self) -> usize {
-        self.current_chunk().code.len()
     }
 }

@@ -1,7 +1,4 @@
-use crate::{
-    chunk::FunctionObject,
-    interner::Interner,
-};
+use crate::{chunk::FunctionObject, interner::Interner, value::ClosureObject};
 use compiler::Compiler;
 use lexer::Lexer;
 use std::{
@@ -22,7 +19,7 @@ pub fn compile(
     name: &str,
     source: &str,
     interner: &mut Interner,
-) -> Result<FunctionObject, Vec<SyntaxError>> {
+) -> Result<ClosureObject, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
     let function_object = FunctionObject::new(&interner.intern(name));
 
@@ -84,7 +81,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn compile(mut self) -> Result<FunctionObject, Vec<SyntaxError>> {
+    fn compile(mut self) -> Result<ClosureObject, Vec<SyntaxError>> {
         self.compiler.reserve_first_stack_slot();
         loop {
             let next = self.peek();
@@ -99,7 +96,7 @@ impl<'a> Parser<'a> {
             }
         }
         if self.errors.is_empty() {
-            Ok(self.compiler.function_object)
+            Ok(ClosureObject::new(Rc::new(self.compiler.function_object)))
         } else {
             Err(self.errors)
         }
@@ -249,7 +246,7 @@ mod test {
             let chunk_left = compile("test", left, &mut Interner::default()).unwrap();
             let chunk_right = compile("test", right, &mut Interner::default()).unwrap();
             assert_eq!(
-                chunk_left.chunk.code, chunk_right.chunk.code,
+                chunk_left.function.chunk.code, chunk_right.function.chunk.code,
                 "case # {index}"
             )
         }

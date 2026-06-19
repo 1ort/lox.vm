@@ -20,9 +20,9 @@ struct Local {
 }
 
 #[derive(PartialEq)]
-struct Upvalue {
-    index: usize,
-    is_local: bool,
+pub(super) struct Upvalue {
+    pub index: u16,
+    pub is_local: bool,
 }
 
 struct LoopContext {
@@ -35,11 +35,11 @@ struct LoopContext {
 pub(super) struct Compiler {
     pub(super) enclosing: Option<Box<Compiler>>,
     pub(super) function_object: FunctionObject,
+    pub(super) upvalues: Vec<Upvalue>,
+    locals: Vec<Local>,
     function_kind: FunctionKind,
     scope_depth: usize,
     loop_context: Option<LoopContext>,
-    locals: Vec<Local>,
-    upvalues: Vec<Upvalue>,
 }
 
 impl Compiler {
@@ -88,19 +88,19 @@ impl Compiler {
             }
         }
         match self.resolve_upvalue(identifier) {
-            Some(index) => Ok(ResolvedVariable::Upvalue(index as u16)),
+            Some(index) => Ok(ResolvedVariable::Upvalue(index)),
             None => Ok(ResolvedVariable::Global),
         }
     }
 
-    fn resolve_upvalue(&mut self, identifier: &Identifier) -> Option<usize> {
+    fn resolve_upvalue(&mut self, identifier: &Identifier) -> Option<u16> {
         let Some(enclosing) = &mut self.enclosing else {
             return None;
         };
         for (stack_index, local) in enclosing.locals.iter().enumerate() {
             if local.identifier.name.eq(&identifier.name) {
                 let new_upvalue = Upvalue {
-                    index: stack_index,
+                    index: stack_index as u16,
                     is_local: true,
                 };
                 return Some(self.add_upvalue(new_upvalue));
@@ -114,15 +114,15 @@ impl Compiler {
         })
     }
 
-    fn add_upvalue(&mut self, new_upvalue: Upvalue) -> usize {
+    fn add_upvalue(&mut self, new_upvalue: Upvalue) -> u16 {
         for (i, upvalue) in self.upvalues.iter().enumerate() {
             if &new_upvalue == upvalue {
-                return i;
+                return i as u16;
             }
         }
         self.upvalues.push(new_upvalue);
         self.function_object.upvalue_count += 1;
-        self.upvalues.len() - 1
+        (self.upvalues.len() - 1) as u16
     }
 
     pub(super) fn add_local(&mut self, identifier: &Identifier) -> Result<usize, SyntaxError> {

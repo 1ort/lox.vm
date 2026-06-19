@@ -59,8 +59,13 @@ impl<'a> Parser<'a> {
         let inner_context = self.exit_context();
         let function_object = inner_context.function_object;
         result?;
-        self.compiler
-            .emit_constant(Rc::new(function_object), fun_tok.span);
+
+        self.compiler.emit_closure(
+            Rc::new(function_object),
+            &inner_context.upvalues,
+            fun_tok.span.clone(),
+        );
+
         if self.compiler.is_global_scope() {
             self.compiler
                 .emit_define_global(&identifier.name, identifier.span);
