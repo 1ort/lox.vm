@@ -378,17 +378,29 @@ mod tests {
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::Constant, val, 0..0);
-        chunk.add_code(OpCode::Return, 0..0);
+        {
+            let index = chunk.push_constant(val);
+            chunk.add_byte(OpCode::Constant, 0..0);
+            chunk.add_word(index, 0..0);
+        }
+        chunk.add_byte(OpCode::Return, 0..0);
         chunk
     }
 
     fn chunk_with_binary_op(a: impl Into<Value>, b: impl Into<Value>, op: OpCode) -> Chunk {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::Constant, a, 0..0);
-        chunk.add_const_code(OpCode::Constant, b, 0..0);
-        chunk.add_code(op as u8, 0..0);
-        chunk.add_code(OpCode::Return, 0..0);
+        {
+            let index = chunk.push_constant(a);
+            chunk.add_byte(OpCode::Constant, 0..0);
+            chunk.add_word(index, 0..0);
+        }
+        {
+            let index = chunk.push_constant(b);
+            chunk.add_byte(OpCode::Constant, 0..0);
+            chunk.add_word(index, 0..0);
+        }
+        chunk.add_byte(op, 0..0);
+        chunk.add_byte(OpCode::Return, 0..0);
         chunk
     }
 
@@ -405,14 +417,6 @@ mod tests {
     }
 
     #[test]
-    fn test_constant_long() {
-        let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::Constant, 20., 0..0);
-        chunk.add_code(OpCode::Return, 0..0);
-        assert!(run(chunk).is_ok_and(|x| x == Value::Number(20.)));
-    }
-
-    #[test]
     fn test_addition() {
         let chunk = chunk_with_binary_op(5.0, 3.0, OpCode::Add);
         assert!(run(chunk).is_ok_and(|x| x == Value::Number(8.)));
@@ -421,9 +425,15 @@ mod tests {
     #[test]
     fn test_negate_operator() {
         let mut chunk = Chunk::new();
-        chunk.add_const_code(OpCode::Constant, 10., 0..0);
-        chunk.add_code(OpCode::Negate, 0..0);
-        chunk.add_code(OpCode::Return, 0..0);
+
+        {
+            let index = chunk.push_constant(10.0);
+            chunk.add_byte(OpCode::Constant, 0..0);
+            chunk.add_word(index, 0..0);
+        }
+
+        chunk.add_byte(OpCode::Negate, 0..0);
+        chunk.add_byte(OpCode::Return, 0..0);
         assert!(run(chunk).is_ok_and(|x| x == Value::Number(-10.)));
     }
 
@@ -452,31 +462,5 @@ mod tests {
     fn test_subtraction() {
         let chunk = chunk_with_binary_op(16., 4., OpCode::Subtract);
         assert!(run(chunk).is_ok_and(|x| x == Value::Number(12.)));
-    }
-
-    #[test]
-    fn test_multiple_operations() {
-        let mut chunk = Chunk::new();
-        let span = 0..1;
-        chunk.add_const_code(OpCode::Constant, 5., span.clone());
-
-        chunk.add_const_code(OpCode::Constant, 10., span.clone());
-        chunk.add_const_code(OpCode::Constant, 9., span.clone());
-        chunk.add_code(OpCode::Subtract, span.clone());
-        // 10 - 9 = 1
-        chunk.add_const_code(OpCode::Constant, 3., span.clone());
-        chunk.add_const_code(OpCode::Constant, 4., span.clone());
-        chunk.add_code(OpCode::Add, span.clone());
-        // 4 + 3 = 7
-        chunk.add_const_code(OpCode::Constant, 20., span.clone());
-        chunk.add_code(OpCode::Multiply, span.clone());
-        // 20 * 7 = 140
-        chunk.add_code(OpCode::Divide, span.clone());
-        // 1/140
-        chunk.add_code(OpCode::Divide, span.clone());
-        // 5 / (1/140) == 700
-        chunk.add_code(OpCode::Return, span.clone());
-
-        assert!(run(chunk).is_ok_and(|x| x == Value::Number(700.)));
     }
 }

@@ -1,10 +1,10 @@
-use crate::compiler::compile;
+use crate::compile::compile;
 use crate::interner::Interner;
 use crate::vm::VM;
 
 mod builtins;
 mod chunk;
-mod compiler;
+mod compile;
 mod interner;
 mod opcode;
 mod value;
