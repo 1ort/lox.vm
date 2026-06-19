@@ -81,12 +81,6 @@ struct Local {
     initialized: bool,
 }
 
-#[derive(Clone, PartialEq)]
-struct Upvalue {
-    is_local: bool,
-    index: usize,
-}
-
 struct LoopContext {
     stack_depth_at_start: usize,
     break_patches: Vec<usize>,
@@ -102,7 +96,6 @@ struct CompilerContext {
     function_object: FunctionObject,
     function_kind: FunctionKind,
     locals: Vec<Local>,
-    upvalues: Vec<Upvalue>,
     scope_depth: usize,
     loop_context: Option<LoopContext>,
 }
@@ -113,7 +106,6 @@ impl CompilerContext {
             function_object,
             function_kind,
             locals: Vec::new(),
-            upvalues: Vec::new(),
             scope_depth: 0,
             loop_context: None,
         }
@@ -326,14 +318,16 @@ impl<'a> Compiler<'a> {
                 }
             }
         }
-        match self
-            .context_stack
-            .split_last_mut()
-            .and_then(|(ctx, enclosings)| ctx.resolve_upvalue(enclosings, name))
-        {
-            Some(upvalue_index) => Ok(ResolvedVariable::Upvalue(upvalue_index as u16)),
-            None => Ok(ResolvedVariable::Global),
+
+        if let Some(ctx) = self.context_stack.get(self.context_stack.len() - 2) {
+            for (stack_index, local) in ctx.locals.iter().enumerate().rev() {
+                if local.identifier.name.eq(name) {
+                    return Ok(ResolvedVariable::Upvalue(stack_index as u16));
+                }
+            }
         }
+
+        Ok(ResolvedVariable::Global)
     }
 
     fn begin_scope(&mut self) {
@@ -388,49 +382,6 @@ impl<'a> Compiler<'a> {
     fn emit_return(&mut self, span: Range<usize>) {
         self.current_chunk().add_code(OpCode::Nil, span.clone());
         self.current_chunk().add_code(OpCode::Return, span.clone());
-    }
-}
-
-impl CompilerContext {
-    fn resolve_upvalue(
-        self: &mut CompilerContext,
-        enclosings: &mut [CompilerContext],
-        name: &Rc<str>,
-    ) -> Option<usize> {
-        if enclosings.is_empty() {
-            return None;
-        }
-        let enclosing_ctx = enclosings
-            .last_mut()
-            .expect("should be at least one element in slice");
-        for (stack_index, local) in enclosing_ctx.locals.iter().enumerate().rev() {
-            if local.identifier.name.eq(name) {
-                let upvalue = Upvalue {
-                    is_local: true,
-                    index: stack_index,
-                };
-                return Some(self.add_upvalue(upvalue));
-            }
-        }
-        let (next_ctx, next_enclosings) = enclosings.split_last_mut()?;
-        next_ctx
-            .resolve_upvalue(next_enclosings, name)
-            .map(|upvalue_index| {
-                self.add_upvalue(Upvalue {
-                    is_local: false,
-                    index: upvalue_index,
-                })
-            })
-    }
-
-    fn add_upvalue(self: &mut CompilerContext, new_upvalue: Upvalue) -> usize {
-        for (i, upvalue) in self.upvalues.iter().enumerate() {
-            if &new_upvalue == upvalue {
-                return i;
-            }
-        }
-        self.upvalues.push(new_upvalue);
-        self.upvalues.len() - 1
     }
 }
 

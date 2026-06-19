@@ -64,9 +64,8 @@ impl<'a> Compiler<'a> {
         self.current_chunk().add_const_code(
             OpCode::Constant,
             Rc::new(function_object),
-            fun_tok.span.clone(),
+            fun_tok.span,
         );
-        self.current_chunk().add_code(OpCode::Closure, fun_tok.span);
         if self.context().scope_depth == 0 {
             self.current_chunk().add_const_code(
                 OpCode::DefineGlobal,
