@@ -7,25 +7,26 @@ use crate::chunk::FunctionObject;
 use Value::*;
 
 #[derive(Clone, Debug)]
-pub struct ClosureObject {
-    pub function: Rc<FunctionObject>,
-}
-
-#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Value {
     Number(f64),
     Str(Rc<str>),
     Bool(bool),
     Nil,
-    NativeFunction(fn(&[Value]) -> Result<Value, String>),
     Function(Rc<FunctionObject>),
-    Closure(Rc<ClosureObject>),
+    NativeFunction(fn(&[Value]) -> Result<Value, String>),
 }
 
 impl Value {
     pub fn is_nil(&self) -> bool {
         matches!(self, Value::Nil)
+    }
+
+    pub fn code_object(&self) -> Result<Rc<FunctionObject>, String> {
+        match self {
+            Function(code_object) => Ok(Rc::clone(code_object)),
+            _ => Err("Can only call functions and classes.".into()),
+        }
     }
 }
 
@@ -37,10 +38,10 @@ impl std::fmt::Display for Value {
             Bool(val) => write!(f, "{val}"),
             Nil => write!(f, "nil"),
             Function(func) => {
-                write!(f, "fun {}", func.name)
+                let name = func.as_ref().name.as_ref();
+                write!(f, "fun {}", name)
             }
             NativeFunction(_) => write!(f, "native function"),
-            Closure(closure_object) => write!(f, "fun {}", closure_object.function.name),
         }
     }
 }
@@ -66,12 +67,6 @@ impl From<bool> for Value {
 impl From<Rc<FunctionObject>> for Value {
     fn from(value: Rc<FunctionObject>) -> Self {
         Self::Function(value)
-    }
-}
-
-impl From<Rc<ClosureObject>> for Value {
-    fn from(value: Rc<ClosureObject>) -> Self {
-        self::Closure(value)
     }
 }
 

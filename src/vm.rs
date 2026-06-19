@@ -3,7 +3,7 @@ use crate::{
     chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
-    value::{ClosureObject, Value},
+    value::Value,
 };
 use std::{collections::HashMap, rc::Rc};
 
@@ -89,20 +89,17 @@ impl<'a> VM {
         });
     }
 
-    // fn current_function(&self) -> &FunctionObject {
-    // }
-
     #[inline(always)]
-    fn current_closure(&self) -> &ClosureObject {
-        let Value::Closure(closure) = &self.stack[self.frame().fp] else {
+    fn current_function(&self) -> &FunctionObject {
+        let Value::Function(func) = &self.stack[self.frame().fp] else {
             panic!("Expect FunctionObject at the bottom of stack")
         };
-        closure.as_ref()
+        func.as_ref()
     }
 
     #[inline(always)]
     fn current_bytes(&self) -> &[u8] {
-        &self.current_closure().function.chunk.code
+        &self.current_function().chunk.code
     }
 
     #[inline(always)]
@@ -147,14 +144,14 @@ impl<'a> VM {
 
     #[inline(always)]
     fn read_const(&'a self, index: u16) -> &'a Value {
-        let chunk = &self.current_closure().function.chunk;
+        let chunk = &self.current_function().chunk;
         &chunk.constants[index as usize]
     }
 
     #[inline(always)]
     fn debug_chunk(&self) {
         if cfg!(feature = "debug_vm") {
-            let function_object = &self.current_closure().function;
+            let function_object = self.current_function();
             let chunk = &function_object.chunk;
             println!("==={}===", function_object.name);
             print!("{}", chunk);
@@ -164,10 +161,7 @@ impl<'a> VM {
 
     pub fn interpret(&mut self, function_object: FunctionObject) -> Result<Value, RuntimeError> {
         self.reset();
-        let closure = ClosureObject {
-            function: Rc::new(function_object),
-        };
-        self.push_stack(Rc::new(closure));
+        self.push_stack(Rc::new(function_object));
         self.debug_chunk();
         self.run()
     }
@@ -188,7 +182,7 @@ impl<'a> VM {
             }
 
             if cfg!(feature = "debug_vm") {
-                let chunk = &self.current_closure().function.chunk;
+                let chunk = &self.current_function().chunk;
                 let mut buff = String::new();
                 format_instruction(chunk, self.ip(), &mut buff);
                 print!("{buff:<60} | ");
@@ -331,8 +325,7 @@ impl<'a> VM {
                 OpCode::Call => {
                     let arg_count = self.next_word();
                     match self.peek_stack(arg_count) {
-                        Value::Closure(closure) => {
-                            let code_object = &closure.function;
+                        Value::Function(code_object) => {
                             if arg_count != code_object.arity as u16 {
                                 return Err(format!(
                                     "Expected {} arguments but got {}.",
@@ -360,19 +353,6 @@ impl<'a> VM {
                         }
                     }
                 }
-                OpCode::Closure => {
-                    let fun_index = self.next_word();
-                    let value = self.read_const(fun_index);
-                    let Value::Function(fun) = value else {
-                        panic!("Can't build closure: invalid function object index");
-                    };
-                    let closure = ClosureObject {
-                        function: Rc::clone(fun),
-                    };
-                    self.push_stack(Rc::new(closure));
-                }
-                OpCode::GetUpvalue => todo!(),
-                OpCode::SetUpvalue => todo!(),
             }
         }
         Ok(Value::Nil)

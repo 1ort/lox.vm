@@ -28,9 +28,6 @@ pub enum OpCode {
     Jump,
     Loop,
     Call,
-    Closure,
-    GetUpvalue,
-    SetUpvalue,
 }
 
 impl From<u8> for OpCode {
@@ -62,9 +59,6 @@ impl From<u8> for OpCode {
             23 => Jump,
             24 => Loop,
             25 => Call,
-            26 => Closure,
-            27 => GetUpvalue,
-            28 => SetUpvalue,
             _ => Pass,
         }
     }
