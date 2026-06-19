@@ -12,6 +12,7 @@ pub struct FunctionObject {
     pub chunk: Chunk,
     pub arity: u8,
     pub name: Rc<str>,
+    pub upvalue_count: u16,
 }
 
 #[derive(Debug, Default)]
@@ -31,11 +32,16 @@ impl Chunk {
         self.spans.push(span.into());
     }
 
+    pub fn add_word(&mut self, word: impl Into<u16>, span: impl Into<Range<usize>>) {
+        let span = span.into();
+        let bytes: [u8; 2] = (word.into()).to_le_bytes();
+        self.add_code(bytes[0], span.clone());
+        self.add_code(bytes[1], span);
+    }
+
     pub fn add_index_code(&mut self, opcode: OpCode, index: u16, span: Range<usize>) {
-        let index_bytes: [u8; 2] = (index).to_le_bytes();
         self.add_code(opcode, span.clone());
-        self.add_code(index_bytes[0], span.clone());
-        self.add_code(index_bytes[1], span);
+        self.add_word(index, span);
     }
 
     pub fn add_const_code(&mut self, opcode: OpCode, value: impl Into<Value>, span: Range<usize>) {

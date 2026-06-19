@@ -1,5 +1,6 @@
 use crate::chunk::Chunk;
 use crate::chunk::OpCode;
+use crate::value::Value;
 use std::fmt::Write;
 
 pub(super) fn format_chunk(chunk: &Chunk, f: &mut impl Write) {
