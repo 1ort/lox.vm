@@ -9,9 +9,21 @@ pub mod debug;
 
 #[derive(Debug)]
 pub struct FunctionObject {
+    pub upvalue_count: usize,
     pub chunk: Chunk,
     pub arity: u8,
     pub name: Rc<str>,
+}
+
+impl FunctionObject {
+    pub fn new(name: &Rc<str>) -> Self {
+        FunctionObject {
+            arity: 0,
+            chunk: Chunk::new(),
+            name: Rc::clone(name),
+            upvalue_count: 0,
+        }
+    }
 }
 
 #[derive(Debug, Default)]

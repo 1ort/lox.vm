@@ -4,7 +4,6 @@ use super::Identifier;
 use super::Parser;
 use super::SyntaxError;
 use super::token::TokenType;
-use crate::chunk::Chunk;
 
 use super::FunctionKind;
 use super::FunctionObject;
@@ -48,11 +47,7 @@ impl<'a> Parser<'a> {
             self.compiler.initialize_local(index);
         }
         let inner_context = Compiler::new(
-            FunctionObject {
-                arity: 0,
-                chunk: Chunk::new(),
-                name: Rc::clone(&identifier.name),
-            },
+            FunctionObject::new(&identifier.name),
             FunctionKind::Function,
         );
         self.enter_context(inner_context);

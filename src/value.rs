@@ -1,10 +1,27 @@
 use std::{
+    cell::RefCell,
     ops::{Add, Div, Mul, Neg, Not, Sub},
+    ptr,
     rc::Rc,
 };
 
 use crate::chunk::FunctionObject;
 use Value::*;
+
+#[derive(Clone, Debug)]
+pub struct ClosureObject {
+    pub function: Rc<FunctionObject>,
+    pub upvalues: Vec<Rc<RefCell<Value>>>,
+}
+
+impl ClosureObject {
+    pub fn new(func: Rc<FunctionObject>) -> Self {
+        ClosureObject {
+            function: func,
+            upvalues: Vec::new(),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -15,6 +32,7 @@ pub enum Value {
     Nil,
     Function(Rc<FunctionObject>),
     NativeFunction(fn(&[Value]) -> Result<Value, String>),
+    Closure(Rc<ClosureObject>),
 }
 
 impl Value {
@@ -39,6 +57,10 @@ impl std::fmt::Display for Value {
             Nil => write!(f, "nil"),
             Function(func) => {
                 let name = func.as_ref().name.as_ref();
+                write!(f, "fun {}", name)
+            }
+            Closure(closure) => {
+                let name = closure.as_ref().function.as_ref().name.as_ref();
                 write!(f, "fun {}", name)
             }
             NativeFunction(_) => write!(f, "native function"),
@@ -67,6 +89,12 @@ impl From<bool> for Value {
 impl From<Rc<FunctionObject>> for Value {
     fn from(value: Rc<FunctionObject>) -> Self {
         Self::Function(value)
+    }
+}
+
+impl From<Rc<ClosureObject>> for Value {
+    fn from(value: Rc<ClosureObject>) -> Self {
+        Self::Closure(value)
     }
 }
 
@@ -166,6 +194,11 @@ impl PartialEq for Value {
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (Self::Str(l0), Self::Str(r0)) => l0 == r0,
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            (Self::Function(this), Self::Function(other)) => Rc::ptr_eq(this, other),
+            (Self::Closure(this), Self::Closure(other)) => Rc::ptr_eq(this, other),
+            (Self::NativeFunction(this), Self::NativeFunction(other)) => {
+                ptr::fn_addr_eq(*this, *other)
+            }
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }

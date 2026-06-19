@@ -1,5 +1,5 @@
 use crate::{
-    chunk::{Chunk, FunctionObject},
+    chunk::FunctionObject,
     interner::Interner,
 };
 use compiler::Compiler;
@@ -24,11 +24,7 @@ pub fn compile(
     interner: &mut Interner,
 ) -> Result<FunctionObject, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
-    let function_object = FunctionObject {
-        arity: 0,
-        chunk: Chunk::new(),
-        name: interner.intern(name),
-    };
+    let function_object = FunctionObject::new(&interner.intern(name));
 
     let mut tokens = lexer.peekable();
     let compiler = Parser::new(source, &mut tokens, function_object, interner);
@@ -56,12 +52,6 @@ impl Identifier {
             span: 0..0,
         }
     }
-}
-
-struct Local {
-    identifier: Identifier,
-    depth: usize,
-    initialized: bool,
 }
 
 enum FunctionKind {

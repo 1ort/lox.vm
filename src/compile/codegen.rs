@@ -78,6 +78,16 @@ impl Compiler {
         self.emit_word(local_index, span);
     }
 
+    pub(crate) fn emit_get_upvalue(&mut self, local_index: u16, span: Range<usize>) {
+        self.emit_byte(OpCode::GetUpvalue, span.clone());
+        self.emit_word(local_index, span);
+    }
+
+    pub(crate) fn emit_set_upvalue(&mut self, local_index: u16, span: Range<usize>) {
+        self.emit_byte(OpCode::SetUpvalue, span.clone());
+        self.emit_word(local_index, span);
+    }
+
     pub(crate) fn emit_call(&mut self, arg_count: u16, span: Range<usize>) {
         self.emit_byte(OpCode::Call, span.clone());
         self.emit_word(arg_count, span);

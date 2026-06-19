@@ -1,6 +1,5 @@
 use super::FunctionKind;
 use super::Identifier;
-use super::Local;
 use super::SyntaxError;
 use crate::chunk::Chunk;
 use crate::chunk::FunctionObject;
@@ -10,7 +9,20 @@ use std::ops::Range;
 
 pub enum ResolvedVariable {
     Local(u16),
+    Upvalue(u16),
     Global,
+}
+
+struct Local {
+    identifier: Identifier,
+    depth: usize,
+    initialized: bool,
+}
+
+#[derive(PartialEq)]
+struct Upvalue {
+    index: usize,
+    is_local: bool,
 }
 
 struct LoopContext {
@@ -24,9 +36,10 @@ pub(super) struct Compiler {
     pub(super) enclosing: Option<Box<Compiler>>,
     pub(super) function_object: FunctionObject,
     function_kind: FunctionKind,
-    locals: Vec<Local>,
     scope_depth: usize,
     loop_context: Option<LoopContext>,
+    locals: Vec<Local>,
+    upvalues: Vec<Upvalue>,
 }
 
 impl Compiler {
@@ -35,9 +48,10 @@ impl Compiler {
             enclosing: None,
             function_object,
             function_kind,
-            locals: Vec::new(),
             scope_depth: 0,
             loop_context: None,
+            locals: Vec::new(),
+            upvalues: Vec::new(),
         }
     }
 
@@ -73,7 +87,42 @@ impl Compiler {
                 }
             }
         }
-        Ok(ResolvedVariable::Global)
+        match self.resolve_upvalue(identifier) {
+            Some(index) => Ok(ResolvedVariable::Upvalue(index as u16)),
+            None => Ok(ResolvedVariable::Global),
+        }
+    }
+
+    fn resolve_upvalue(&mut self, identifier: &Identifier) -> Option<usize> {
+        let Some(enclosing) = &mut self.enclosing else {
+            return None;
+        };
+        for (stack_index, local) in enclosing.locals.iter().enumerate() {
+            if local.identifier.name.eq(&identifier.name) {
+                let new_upvalue = Upvalue {
+                    index: stack_index,
+                    is_local: true,
+                };
+                return Some(self.add_upvalue(new_upvalue));
+            }
+        }
+        enclosing.resolve_upvalue(identifier).map(|upv_index| {
+            self.add_upvalue(Upvalue {
+                index: upv_index,
+                is_local: false,
+            })
+        })
+    }
+
+    fn add_upvalue(&mut self, new_upvalue: Upvalue) -> usize {
+        for (i, upvalue) in self.upvalues.iter().enumerate() {
+            if &new_upvalue == upvalue {
+                return i;
+            }
+        }
+        self.upvalues.push(new_upvalue);
+        self.function_object.upvalue_count += 1;
+        self.upvalues.len() - 1
     }
 
     pub(super) fn add_local(&mut self, identifier: &Identifier) -> Result<usize, SyntaxError> {

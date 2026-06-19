@@ -90,6 +90,11 @@ impl<'a> Parser<'a> {
                         self.expression()?;
                         self.compiler.emit_set_local(index, span);
                     }
+                    (ResolvedVariable::Upvalue(index), TokenType::Equal) if min_bp == 0 => {
+                        let span = self.next().expect("should be equal token").span;
+                        self.expression()?;
+                        self.compiler.emit_set_upvalue(index, span);
+                    }
                     (ResolvedVariable::Global, TokenType::Equal) if min_bp == 0 => {
                         let span = self.next().expect("should be equal token").span;
                         self.expression()?;
@@ -100,6 +105,9 @@ impl<'a> Parser<'a> {
                     }
                     (ResolvedVariable::Local(index), _) => {
                         self.compiler.emit_get_local(index, identifier.span);
+                    }
+                    (ResolvedVariable::Upvalue(index), _) => {
+                        self.compiler.emit_get_upvalue(index, identifier.span);
                     }
                     (ResolvedVariable::Global, _) => {
                         self.compiler.emit_get_global(identifier);
