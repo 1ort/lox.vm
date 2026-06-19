@@ -13,7 +13,7 @@ pub enum ResolvedVariable {
     Global,
 }
 
-pub(super) struct LoopContext {
+struct LoopContext {
     stack_depth_at_start: usize,
     break_patches: Vec<usize>,
     loop_start: usize,

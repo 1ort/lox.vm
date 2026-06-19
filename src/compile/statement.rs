@@ -3,7 +3,6 @@ use std::rc::Rc;
 use super::Identifier;
 use super::Parser;
 use super::SyntaxError;
-use super::compiler::LoopContext;
 use super::token::TokenType;
 use crate::chunk::Chunk;
 
