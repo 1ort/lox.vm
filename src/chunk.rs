@@ -26,28 +26,28 @@ impl Chunk {
         Chunk::default()
     }
 
-    pub fn add_code(&mut self, byte: impl Into<u8>, span: impl Into<Range<usize>>) {
+    pub fn add_byte(&mut self, byte: impl Into<u8>, span: impl Into<Range<usize>>) {
         self.code.push(byte.into());
         self.spans.push(span.into());
     }
-
-    pub fn add_index_code(&mut self, opcode: OpCode, index: u16, span: Range<usize>) {
-        let index_bytes: [u8; 2] = (index).to_le_bytes();
-        self.add_code(opcode, span.clone());
-        self.add_code(index_bytes[0], span.clone());
-        self.add_code(index_bytes[1], span);
+    pub fn add_word(&mut self, word: impl Into<u16>, span: impl Into<Range<usize>>) {
+        let bytes: [u8; 2] = (word.into()).to_le_bytes();
+        let span = span.into();
+        self.add_byte(bytes[0], span.clone());
+        self.add_byte(bytes[1], span);
     }
 
-    pub fn add_const_code(&mut self, opcode: OpCode, value: impl Into<Value>, span: Range<usize>) {
-        let index = self.push_constant(value);
-        self.add_index_code(opcode, index as u16, span);
+    pub fn patch_word(&mut self, offset: usize, word: impl Into<u16>) {
+        let bytes: [u8; 2] = (word.into()).to_le_bytes();
+        self.code[offset] = bytes[0];
+        self.code[offset + 1] = bytes[1];
     }
 
-    pub fn push_constant(&mut self, value: impl Into<Value>) -> usize {
+    pub fn push_constant(&mut self, value: impl Into<Value>) -> u16 {
         let const_size = self.constants.len();
         if const_size < 2usize.pow(16) {
             self.constants.push(value.into());
-            self.constants.len() - 1
+            (self.constants.len() - 1) as u16
         } else {
             panic!("Can't store more constants")
         }
@@ -76,39 +76,11 @@ mod test_chunk {
     #[test]
     fn add_code_appends_byte_and_span() {
         let mut chunk = Chunk::new();
-        chunk.add_code(42u8, 0..1);
-        chunk.add_code(100u8, 1..2);
+        chunk.add_byte(42u8, 0..1);
+        chunk.add_byte(100u8, 1..2);
 
         assert_eq!(chunk.code, vec![42, 100]);
         assert_eq!(chunk.spans, vec![0..1, 1..2]);
-    }
-
-    #[test]
-    fn add_constant() {
-        let mut chunk = Chunk::new();
-        for i in 0..300 {
-            chunk.push_constant(i as f64);
-        }
-        chunk.add_const_code(OpCode::Constant, 12345.0, 0..1);
-
-        let index: u16 = 300;
-        let [low, high] = index.to_le_bytes();
-        let last_bytes = &chunk.code[chunk.code.len() - 3..];
-
-        assert_eq!(last_bytes, &[1, low, high]);
-        assert_eq!(chunk.spans[chunk.spans.len() - 3..], [0..1, 0..1, 0..1]);
-        assert_eq!(chunk.constants.last().unwrap(), &Value::Number(12345.0));
-    }
-
-    #[test]
-    #[should_panic(expected = "Can't store more constants")]
-    fn add_constant_too_many_panics() {
-        let mut chunk = Chunk::new();
-        for _ in 0..2usize.pow(16) {
-            chunk.add_const_code(OpCode::Constant, 3.15, 0..1);
-        }
-
-        chunk.add_const_code(OpCode::Constant, 3.15, 0..1);
     }
 
     #[test]
