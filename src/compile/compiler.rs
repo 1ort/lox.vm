@@ -13,10 +13,12 @@ pub enum ResolvedVariable {
     Global,
 }
 
+#[derive(Debug)]
 struct Local {
     identifier: Identifier,
     depth: usize,
     initialized: bool,
+    is_captured: bool,
 }
 
 #[derive(PartialEq)]
@@ -97,12 +99,13 @@ impl Compiler {
         let Some(enclosing) = &mut self.enclosing else {
             return None;
         };
-        for (stack_index, local) in enclosing.locals.iter().enumerate() {
+        for (stack_index, local) in enclosing.locals.iter_mut().enumerate() {
             if local.identifier.name.eq(&identifier.name) {
                 let new_upvalue = Upvalue {
                     index: stack_index as u16,
                     is_local: true,
                 };
+                local.is_captured = true;
                 return Some(self.add_upvalue(new_upvalue));
             }
         }
@@ -143,6 +146,7 @@ impl Compiler {
                 identifier: identifier.clone(),
                 depth: self.scope_depth,
                 initialized: false,
+                is_captured: false,
             };
             self.locals.push(local);
             Ok(self.locals.len() - 1)
@@ -170,10 +174,15 @@ impl Compiler {
             .last()
             .is_some_and(|loc| loc.depth == self.scope_depth)
         {
-            self.locals.pop().expect("locals.last() should be Some()");
-            self.function_object
-                .chunk
-                .add_byte(OpCode::Pop, span.clone());
+            let local = self.locals.pop().expect("locals.last() should be Some()");
+            self.function_object.chunk.add_byte(
+                if local.is_captured {
+                    OpCode::CloseUpvalue
+                } else {
+                    OpCode::Pop
+                },
+                span.clone(),
+            );
         }
 
         self.scope_depth -= 1;

@@ -11,13 +11,13 @@ use Value::*;
 #[derive(Debug)]
 pub enum Upvalue {
     Opened(usize), // Absolute stack index
-    Closed(RefCell<Value>),
+    Closed(Value),
 }
 
 #[derive(Clone, Debug)]
 pub struct ClosureObject {
     pub function: Rc<FunctionObject>,
-    pub upvalues: Vec<Rc<Upvalue>>,
+    pub upvalues: Vec<Rc<RefCell<Upvalue>>>,
 }
 
 impl ClosureObject {

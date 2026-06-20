@@ -5,7 +5,11 @@ use crate::{
     opcode::OpCode,
     value::{ClosureObject, Upvalue, Value},
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+    rc::Rc,
+};
 
 const STACK_MAX: usize = u16::MAX as usize;
 const FRAMES_MAX: usize = u16::MAX as usize;
@@ -33,6 +37,7 @@ pub struct VM {
     frames: Vec<CallFrame>,
     globals: HashMap<Rc<str>, Value>,
     interner: Interner,
+    open_upvalues: BTreeMap<usize, Rc<RefCell<Upvalue>>>,
 }
 
 impl<'a> VM {
@@ -42,6 +47,7 @@ impl<'a> VM {
             frames: Vec::with_capacity(FRAMES_MAX),
             globals: HashMap::new(),
             interner,
+            open_upvalues: BTreeMap::new(),
         }
     }
 
@@ -59,6 +65,7 @@ impl<'a> VM {
     fn reset(&mut self) {
         self.stack.truncate(0);
         self.frames.truncate(0);
+        self.open_upvalues.clear();
         self.enter_frame(0);
     }
 
@@ -149,6 +156,18 @@ impl<'a> VM {
     }
 
     #[inline(always)]
+    fn close_upvalues(&mut self, first_local_index: usize) {
+        let upvalues_to_close = self.open_upvalues.split_off(&first_local_index);
+        for upvalue in upvalues_to_close.into_values() {
+            let value = match *upvalue.borrow() {
+                Upvalue::Opened(index) => self.stack[index].clone(),
+                Upvalue::Closed(_) => unreachable!(),
+            };
+            upvalue.replace(Upvalue::Closed(value));
+        }
+    }
+
+    #[inline(always)]
     fn debug_chunk(&self) {
         if cfg!(feature = "debug_vm") {
             let closure = self.current_closure();
@@ -174,7 +193,7 @@ impl<'a> VM {
             if self.ip() >= bytes.len() {
                 if cfg!(feature = "debug_vm") {
                     print!("[");
-                    for val in &self.stack {
+                    for val in &self.stack[self.frame().fp..] {
                         print!("{}, ", val);
                     }
                     println!("]");
@@ -188,7 +207,7 @@ impl<'a> VM {
                 format_instruction(chunk, self.ip(), &mut buff);
                 print!("{buff:<60} | ");
                 print!("[");
-                for val in &self.stack {
+                for val in &self.stack[self.frame().fp..] {
                     print!("{}, ", val);
                 }
                 println!("]");
@@ -208,9 +227,11 @@ impl<'a> VM {
                         .frames
                         .pop()
                         .expect("At least one stack frame should present");
+
                     if self.frames.is_empty() {
                         return Ok(value);
                     }
+                    self.close_upvalues(frame.fp);
                     self.stack.truncate(frame.fp);
                     self.push_stack(value);
                 }
@@ -357,26 +378,27 @@ impl<'a> VM {
                 }
                 OpCode::GetUpvalue => {
                     let upvalue_index = self.next_word();
-                    let upvalue = self.current_closure().upvalues[upvalue_index as usize].as_ref();
-                    let value = match upvalue {
-                        Upvalue::Opened(abs_stack_index) => self.stack[*abs_stack_index].clone(),
-                        Upvalue::Closed(ref_cell) => ref_cell.borrow().clone(),
+                    let upvalue_rc = &self.current_closure().upvalues[upvalue_index as usize];
+                    let value = match *upvalue_rc.borrow() {
+                        Upvalue::Opened(abs_stack_index) => self.stack[abs_stack_index].clone(),
+                        Upvalue::Closed(ref value) => value.clone(),
                     };
                     self.push_stack(value);
                 }
                 OpCode::SetUpvalue => {
                     let upvalue_index = self.next_word();
-                    let new_value = self.peek_stack(0);
-                    let upvalue =
-                        Rc::clone(&self.current_closure().upvalues[upvalue_index as usize]);
-                    match upvalue.as_ref() {
-                        Upvalue::Opened(abs_stack_index) => {
-                            self.stack[*abs_stack_index] = new_value.clone();
+                    let new_value = self.peek_stack(0).clone();
+                    let upvalue_rc = &self.current_closure().upvalues[upvalue_index as usize];
+                    let upvalue_rc = Rc::clone(upvalue_rc);
+
+                    let t = match *upvalue_rc.borrow() {
+                        Upvalue::Opened(index) => {
+                            self.stack[index] = new_value;
+                            Upvalue::Opened(index)
                         }
-                        Upvalue::Closed(ref_cell) => {
-                            *ref_cell.borrow_mut() = new_value.clone();
-                        }
+                        Upvalue::Closed(_) => Upvalue::Closed(new_value),
                     };
+                    upvalue_rc.replace(t);
                 }
                 OpCode::Closure => {
                     let fun_index = self.next_word();
@@ -390,17 +412,24 @@ impl<'a> VM {
                         let is_local = self.next_byte();
                         let index = self.next_word();
                         let upvalue = if is_local == 1 {
+                            // all upvalues pointing to same stack index should be ref-counted
                             let abs_stack_index = self.frame().fp + index as usize;
-                            let upvalue = Upvalue::Opened(abs_stack_index);
-                            Rc::new(upvalue)
+                            self.open_upvalues
+                                .entry(abs_stack_index)
+                                .or_insert_with(|| {
+                                    Rc::new(RefCell::new(Upvalue::Opened(abs_stack_index)))
+                                })
                         } else {
-                            let upvalue = &self.current_closure().upvalues[index as usize];
-                            Rc::clone(upvalue)
+                            &self.current_closure().upvalues[index as usize]
                         };
-                        closure.upvalues.push(upvalue);
+                        closure.upvalues.push(Rc::clone(upvalue));
                     }
-
                     self.push_stack(Rc::new(closure));
+                }
+                OpCode::CloseUpvalue => {
+                    let abs_stack_index = self.stack.len() - 1;
+                    self.close_upvalues(abs_stack_index);
+                    self.pop_stack();
                 }
             }
         }

@@ -36,7 +36,7 @@ pub struct SyntaxError {
     span: Range<usize>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Identifier {
     name: Rc<str>,
     span: Range<usize>,

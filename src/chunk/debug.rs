@@ -28,39 +28,46 @@ pub fn format_instruction(chunk: &Chunk, offset: usize, f: &mut impl Write) -> u
         GetLocal | SetLocal | JumpIfFalse | Jump | Loop | Call => {
             byte_instruction(instruction, chunk, offset, f)
         }
-        Closure => {
-            let fun_index = get_word(chunk, offset + 1);
-            let fun_value = &chunk.constants[fun_index as usize];
-            let Value::Function(fun) = fun_value else {
-                panic!("Can not debug closure: expected function constant. Got: {fun_value:?}");
-            };
-            let mut offset = offset + 3;
-
-            let instruction = format!("{instruction:?}");
-            writeln!(f, "{instruction:>16} {fun_index:>4} {fun_value}").unwrap();
-
-            for _ in 0..fun.upvalue_count {
-                let is_local = chunk.code[offset];
-                let index = get_word(chunk, offset + 1);
-                write!(f, "{offset:<04} {:>8} ", "|").unwrap();
-                offset += 3;
-                let upvalue = format!(
-                    "{} {index}",
-                    if is_local == 1 {
-                        "local"
-                    } else if is_local == 0 {
-                        "upvalue"
-                    } else {
-                        panic!("unknown upvalue kind {is_local}")
-                    }
-                );
-                writeln!(f, "{:>16} {:>4} {upvalue:?}", "|", "|",).unwrap();
-            }
-
-            offset
-        }
+        Closure => closure_instruction(chunk, offset, f, instruction),
         _ => simple_instruction(instruction, offset, f),
     }
+}
+
+fn closure_instruction(
+    chunk: &Chunk,
+    offset: usize,
+    f: &mut impl Write,
+    instruction: OpCode,
+) -> usize {
+    let fun_index = get_word(chunk, offset + 1);
+    let fun_value = &chunk.constants[fun_index as usize];
+    let Value::Function(fun) = fun_value else {
+        panic!("Can not debug closure: expected function constant. Got: {fun_value:?}");
+    };
+    let mut offset = offset + 3;
+
+    let instruction = format!("{instruction:?}");
+    write!(f, "{instruction:>16} {fun_index:>4} {fun_value}").unwrap();
+
+    for _ in 0..fun.upvalue_count {
+        writeln!(f).unwrap();
+        let is_local = chunk.code[offset];
+        let index = get_word(chunk, offset + 1);
+        write!(f, "{offset:<04} {:>8} ", "|").unwrap();
+        offset += 3;
+        let upvalue = format!(
+            "{} {index}",
+            if is_local == 1 {
+                "local"
+            } else if is_local == 0 {
+                "upvalue"
+            } else {
+                panic!("unknown upvalue kind {is_local}")
+            }
+        );
+        write!(f, "{:>16} {:>4} {upvalue:?}", "|", "|",).unwrap();
+    }
+    offset
 }
 
 fn simple_instruction(instruction: OpCode, offset: usize, f: &mut impl Write) -> usize {
