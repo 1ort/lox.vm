@@ -17,8 +17,8 @@ pub struct ClosureObject {
 impl ClosureObject {
     pub fn new(func: Rc<FunctionObject>) -> Self {
         ClosureObject {
+            upvalues: Vec::with_capacity(func.upvalue_count),
             function: func,
-            upvalues: Vec::new(),
         }
     }
 }

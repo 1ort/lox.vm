@@ -1,11 +1,11 @@
 use crate::{
     builtins::Builtin,
-    chunk::debug::format_instruction,
+    chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
     value::{ClosureObject, Value},
 };
-use std::{collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 const STACK_MAX: usize = u16::MAX as usize;
 const FRAMES_MAX: usize = u16::MAX as usize;
@@ -159,9 +159,10 @@ impl<'a> VM {
         }
     }
 
-    pub fn interpret(&mut self, closure: ClosureObject) -> Result<Value, RuntimeError> {
+    pub fn interpret(&mut self, func: FunctionObject) -> Result<Value, RuntimeError> {
         self.reset();
-        self.push_stack(Rc::new(closure));
+        let closure = Rc::new(ClosureObject::new(Rc::new(func)));
+        self.push_stack(closure);
         self.debug_chunk();
         self.run()
     }
@@ -327,7 +328,6 @@ impl<'a> VM {
                     match self.peek_stack(arg_count) {
                         Value::Closure(closure) => {
                             let code_object = closure.function.as_ref();
-
                             if arg_count != code_object.arity as u16 {
                                 return Err(format!(
                                     "Expected {} arguments but got {}.",
@@ -374,7 +374,21 @@ impl<'a> VM {
                     let Value::Function(fun) = value else {
                         panic!("Can't build closure: invalid function object index");
                     };
-                    let closure = ClosureObject::new(Rc::clone(fun));
+
+                    let mut closure = ClosureObject::new(Rc::clone(fun));
+                    for _ in 0..fun.upvalue_count {
+                        let is_local = self.next_byte();
+                        let index = self.next_word();
+                        let upvalue = if is_local == 1 {
+                            let value = self.read_stack(index);
+                            Rc::new(RefCell::new(value.clone()))
+                        } else {
+                            let upvalue = &self.current_closure().upvalues[index as usize];
+                            Rc::clone(upvalue)
+                        };
+                        closure.upvalues.push(upvalue);
+                    }
+
                     self.push_stack(Rc::new(closure));
                 }
             }
@@ -394,8 +408,7 @@ mod tests {
         let mut vm = VM::new(interner);
         let mut code_object = FunctionObject::new(&Rc::from(""));
         code_object.chunk = chunk;
-        let closure = ClosureObject::new(Rc::new(code_object));
-        vm.interpret(closure)
+        vm.interpret(code_object)
     }
 
     fn chunk_with_constant(val: impl Into<Value>) -> Chunk {
