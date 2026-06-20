@@ -3,7 +3,7 @@ use crate::{
     chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
-    value::{ClosureObject, Value},
+    value::{ClosureObject, Upvalue, Value},
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -357,16 +357,26 @@ impl<'a> VM {
                 }
                 OpCode::GetUpvalue => {
                     let upvalue_index = self.next_word();
-                    let value = (self.current_closure().upvalues[upvalue_index as usize])
-                        .borrow()
-                        .clone();
+                    let upvalue = self.current_closure().upvalues[upvalue_index as usize].as_ref();
+                    let value = match upvalue {
+                        Upvalue::Opened(abs_stack_index) => self.stack[*abs_stack_index].clone(),
+                        Upvalue::Closed(ref_cell) => ref_cell.borrow().clone(),
+                    };
                     self.push_stack(value);
                 }
                 OpCode::SetUpvalue => {
                     let upvalue_index = self.next_word();
-                    let value = self.peek_stack(0);
-                    *self.current_closure().upvalues[upvalue_index as usize].borrow_mut() =
-                        value.clone();
+                    let new_value = self.peek_stack(0);
+                    let upvalue =
+                        Rc::clone(&self.current_closure().upvalues[upvalue_index as usize]);
+                    match upvalue.as_ref() {
+                        Upvalue::Opened(abs_stack_index) => {
+                            self.stack[*abs_stack_index] = new_value.clone();
+                        }
+                        Upvalue::Closed(ref_cell) => {
+                            *ref_cell.borrow_mut() = new_value.clone();
+                        }
+                    };
                 }
                 OpCode::Closure => {
                     let fun_index = self.next_word();
@@ -380,8 +390,9 @@ impl<'a> VM {
                         let is_local = self.next_byte();
                         let index = self.next_word();
                         let upvalue = if is_local == 1 {
-                            let value = self.read_stack(index);
-                            Rc::new(RefCell::new(value.clone()))
+                            let abs_stack_index = self.frame().fp + index as usize;
+                            let upvalue = Upvalue::Opened(abs_stack_index);
+                            Rc::new(upvalue)
                         } else {
                             let upvalue = &self.current_closure().upvalues[index as usize];
                             Rc::clone(upvalue)

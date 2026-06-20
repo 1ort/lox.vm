@@ -8,10 +8,16 @@ use std::{
 use crate::chunk::FunctionObject;
 use Value::*;
 
+#[derive(Debug)]
+pub enum Upvalue {
+    Opened(usize), // Absolute stack index
+    Closed(RefCell<Value>),
+}
+
 #[derive(Clone, Debug)]
 pub struct ClosureObject {
     pub function: Rc<FunctionObject>,
-    pub upvalues: Vec<Rc<RefCell<Value>>>,
+    pub upvalues: Vec<Rc<Upvalue>>,
 }
 
 impl ClosureObject {
