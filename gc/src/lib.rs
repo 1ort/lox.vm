@@ -53,17 +53,18 @@ impl<T: Trace> GcHeap<T> {
         }
     }
 
-    fn get(&self, gc: Gc<T>) -> &T {
-        &self.values[gc.index]
-            .as_ref()
-            .expect("Dangling GCHeap pointer")
-            .value
+    fn get(&self, gc: Gc<T>) -> Option<&T> {
+        self.values[gc.index].as_ref().map(|b| &b.value)
     }
 
-    fn get_mut(&mut self, gc: Gc<T>) -> &mut T {
-        &mut self.values[gc.index]
-            .as_mut()
-            .expect("Dangling GCHEap pointer")
-            .value
+    fn get_mut(&mut self, gc: Gc<T>) -> Option<&mut T> {
+        self.values[gc.index].as_mut().map(|b| &mut b.value)
+    }
+
+    fn take(&mut self, gc: Gc<T>) -> Option<T> {
+        self.values[gc.index]
+            .take()
+            .map(|b| b.value)
+            .inspect(|_| self.free_indexes.push(gc.index))
     }
 }
