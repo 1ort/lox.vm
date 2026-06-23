@@ -17,6 +17,13 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 fn main() -> ExitCode {
+    {
+        use gc::GcHeader;
+        use std::mem::size_of;
+
+        println!("{}", size_of::<GcHeader>())
+    }
+
     let args: Vec<_> = env::args_os().skip(1).collect();
     match &args[..] {
         [] => repl(),
