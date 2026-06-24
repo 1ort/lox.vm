@@ -1,7 +1,15 @@
-use std::{cell::Cell, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+use std::{
+    cell::Cell,
+    mem::ManuallyDrop,
+    ops::Deref,
+    ptr::{self, NonNull},
+};
 use trace::Trace;
 
 mod trace;
+
+#[cfg(test)]
+mod tests;
 
 #[repr(C)]
 struct GcInner<T: ?Sized + Trace> {
@@ -18,7 +26,7 @@ impl<T: Trace> GcInner<T> {
         self.dropped.set(true);
         unsafe {
             ManuallyDrop::drop(&mut self.value);
-        }
+        };
     }
 }
 
@@ -40,9 +48,11 @@ impl<T: Trace> Drop for Gc<T> {
     fn drop(&mut self) {
         unsafe {
             let inner = self.ptr.as_mut();
-            inner.ref_count.update(|rc| rc - 1);
-            if inner.ref_count.get() == 0 {
-                inner.drop_value();
+            if !inner.dropped.get() {
+                inner.ref_count.update(|rc| rc - 1);
+                if inner.ref_count.get() == 0 {
+                    inner.drop_value();
+                }
             }
         }
     }
@@ -99,19 +109,23 @@ impl GcHeap {
 
     /// sweep stage of garbage collection
     pub fn sweep(&mut self) {
-        self.values.retain(|&ptr| unsafe {
+        eprintln!("start sweep");
+        self.values.retain_mut(|ptr| unsafe {
             let inner = ptr.as_ref();
             if inner.dropped.get() {
+                eprintln!("inner dropped");
                 // Inner value already dropped by refcounter in Gc::drop().
                 // Do not call drop on value second time
-                let _ = Box::from_raw(ptr.as_ptr());
+                drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else if !inner.accessed.get() {
+                eprintln!("inner not accessed");
                 // Value is not accessed from root.
                 // Drop inner value and whole box.
-                let mut dynamic_ptr = ptr;
-                ManuallyDrop::drop(&mut dynamic_ptr.as_mut().value);
-                let _ = Box::from_raw(ptr.as_ptr());
+                inner.dropped.set(true);
+                inner.ref_count.set(0);
+                ptr::drop_in_place(ptr);
+                drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else {
                 ptr.as_ref().accessed.set(false);
