@@ -1,4 +1,5 @@
 use std::{
+    alloc::{Layout, dealloc},
     cell::{Cell, UnsafeCell},
     mem::ManuallyDrop,
     ops::Deref,
@@ -87,7 +88,7 @@ impl<T: Trace> Trace for Gc<T> {
 
 /// Виртуальная куча с сборщиком мусора
 pub struct GcHeap {
-    values: Vec<NonNull<GcInner<dyn Trace>>>,
+    values: Vec<(NonNull<GcInner<dyn Trace>>, Layout)>,
 }
 
 impl GcHeap {
@@ -103,28 +104,31 @@ impl GcHeap {
             dropped: Cell::new(false),
             value: UnsafeCell::new(ManuallyDrop::new(value)),
         }));
+
+        let layout = Layout::for_value(raw_thin);
+
         let non_null_thin = NonNull::from(raw_thin);
         let non_null_dyn: NonNull<GcInner<dyn Trace>> = non_null_thin;
 
-        self.values.push(non_null_dyn);
+        self.values.push((non_null_dyn, layout));
         Gc { ptr: non_null_thin }
     }
 
     /// Этап sweep сборки мусора
     pub fn sweep(&mut self) {
-        self.values.retain_mut(|ptr| unsafe {
-            let inner = ptr.as_ref();
+        self.values.retain(|(ptr, layout)| unsafe {
+            let ptr = ptr.as_ptr();
+            let inner = ptr.as_ref_unchecked();
             if inner.dropped.get() {
-                // Значение уже сброшено в Gc::drop, повторно не дропаем
                 ptr.drop_in_place();
+                dealloc(ptr as *mut u8, *layout);
                 false
             } else if !inner.accessed.get() {
-                // Значение не достижимо из корня – дропаем и удаляем
                 inner.drop_value();
                 ptr.drop_in_place();
+                dealloc(ptr as *mut u8, *layout);
                 false
             } else {
-                // Сбрасываем флаг accessed для следующего цикла
                 inner.accessed.set(false);
                 true
             }
@@ -134,7 +138,7 @@ impl GcHeap {
     pub fn dropped_count(&self) -> usize {
         self.values
             .iter()
-            .filter(|&ptr| unsafe {
+            .filter(|(ptr, _)| unsafe {
                 let inner = ptr.as_ref();
                 inner.dropped.get()
             })
@@ -156,4 +160,3 @@ impl Default for GcHeap {
         Self::new()
     }
 }
-
