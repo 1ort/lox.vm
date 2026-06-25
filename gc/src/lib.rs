@@ -1,9 +1,4 @@
-use std::{
-    cell::Cell,
-    mem::ManuallyDrop,
-    ops::Deref,
-    ptr::{self, NonNull},
-};
+use std::{cell::Cell, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 use trace::Trace;
 
 mod trace;
@@ -21,12 +16,14 @@ struct GcInner<T: ?Sized + Trace> {
     value: ManuallyDrop<T>,
 }
 
-impl<T: Trace> GcInner<T> {
-    unsafe fn drop_value(&mut self) {
-        self.dropped.set(true);
-        unsafe {
-            ManuallyDrop::drop(&mut self.value);
-        };
+impl<T: ?Sized + Trace> GcInner<T> {
+    fn drop_value(&mut self) {
+        if !self.dropped.get() {
+            self.dropped.set(true);
+            unsafe {
+                ManuallyDrop::drop(&mut self.value);
+            };
+        }
     }
 }
 
@@ -109,22 +106,17 @@ impl GcHeap {
 
     /// sweep stage of garbage collection
     pub fn sweep(&mut self) {
-        eprintln!("start sweep");
         self.values.retain_mut(|ptr| unsafe {
-            let inner = ptr.as_ref();
+            let inner = ptr.as_mut();
             if inner.dropped.get() {
-                eprintln!("inner dropped");
                 // Inner value already dropped by refcounter in Gc::drop().
                 // Do not call drop on value second time
                 drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else if !inner.accessed.get() {
-                eprintln!("inner not accessed");
                 // Value is not accessed from root.
                 // Drop inner value and whole box.
-                inner.dropped.set(true);
-                inner.ref_count.set(0);
-                ptr::drop_in_place(ptr);
+                inner.drop_value();
                 drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else {
@@ -132,6 +124,25 @@ impl GcHeap {
                 true
             }
         });
+    }
+
+    pub fn dropped_count(&self) -> usize {
+        self.values
+            .iter()
+            .filter(|&ptr| unsafe {
+                let inner = ptr.as_ref();
+                inner.dropped.get()
+            })
+            .count()
+    }
+}
+
+impl Drop for GcHeap {
+    fn drop(&mut self) {
+        self.sweep();
+        if !self.values.is_empty() {
+            panic!("GcHeap is not empty when dropped")
+        }
     }
 }
 
