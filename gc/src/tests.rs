@@ -152,4 +152,3 @@ fn test_live_cycle_and_diamond() {
     assert_eq!(Rc::strong_count(&counter), 1);
     assert!(heap.values.is_empty());
 }
-

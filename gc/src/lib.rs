@@ -87,21 +87,17 @@ impl GcHeap {
 
     /// Allocate new garbage-collectible object on a virtual heap
     pub fn alloc<T: Trace + 'static>(&mut self, value: T) -> Gc<T> {
-        let inner_box = Box::new(GcInner {
+        let raw_thin = Box::leak(Box::new(GcInner {
             ref_count: Cell::new(1),
             accessed: Cell::new(false),
             dropped: Cell::new(false),
             value: ManuallyDrop::new(value),
-        });
-        let raw_thin = Box::into_raw(inner_box);
-        let raw_dyn: *mut GcInner<dyn Trace> = raw_thin;
+        }));
+        let non_null_thin = NonNull::from(raw_thin);
+        let non_null_dyn: NonNull<GcInner<dyn Trace>> = non_null_thin;
 
-        unsafe {
-            self.values.push(NonNull::new_unchecked(raw_dyn));
-            Gc {
-                ptr: NonNull::new_unchecked(raw_thin),
-            }
-        }
+        self.values.push(non_null_dyn);
+        Gc { ptr: non_null_thin }
     }
 
     /// sweep stage of garbage collection
@@ -111,13 +107,15 @@ impl GcHeap {
             if inner.dropped.get() {
                 // Inner value already dropped by refcounter in Gc::drop().
                 // Do not call drop on value second time
-                drop(Box::from_raw(ptr.as_ptr()));
+                ptr.drop_in_place();
+                //drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else if !inner.accessed.get() {
                 // Value is not accessed from root.
                 // Drop inner value and whole box.
                 inner.drop_value();
-                drop(Box::from_raw(ptr.as_ptr()));
+                ptr.drop_in_place();
+                //drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else {
                 ptr.as_ref().accessed.set(false);
