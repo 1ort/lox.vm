@@ -1,4 +1,9 @@
-use std::{cell::Cell, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+use std::{
+    cell::{Cell, UnsafeCell},
+    mem::ManuallyDrop,
+    ops::Deref,
+    ptr::{self, NonNull},
+};
 use trace::Trace;
 
 mod trace;
@@ -9,20 +14,18 @@ mod tests;
 #[repr(C)]
 struct GcInner<T: ?Sized + Trace> {
     ref_count: Cell<usize>,
-    /// Flag: This value is accessed from root
     accessed: Cell<bool>,
-    /// Flag: This value is zombie and should be deallocated
     dropped: Cell<bool>,
-    value: ManuallyDrop<T>,
+    value: UnsafeCell<ManuallyDrop<T>>,
 }
 
 impl<T: ?Sized + Trace> GcInner<T> {
-    fn drop_value(&mut self) {
+    fn drop_value(&self) {
         if !self.dropped.get() {
             self.dropped.set(true);
             unsafe {
-                ManuallyDrop::drop(&mut self.value);
-            };
+                ManuallyDrop::drop(self.value.get().as_mut_unchecked());
+            }
         }
     }
 }
@@ -34,7 +37,9 @@ pub struct Gc<T: Trace> {
 impl<T: Trace> Clone for Gc<T> {
     fn clone(&self) -> Gc<T> {
         unsafe {
-            self.ptr.as_ref().ref_count.update(|rc| rc + 1);
+            let inner = self.ptr.as_ref();
+            let rc = inner.ref_count.get();
+            inner.ref_count.set(rc + 1);
         }
         Gc { ptr: self.ptr }
     }
@@ -44,9 +49,10 @@ impl<T: Trace> Drop for Gc<T> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            let inner = self.ptr.as_mut();
+            let inner = self.ptr.as_ref();
             if !inner.dropped.get() {
-                inner.ref_count.update(|rc| rc - 1);
+                let rc = inner.ref_count.get();
+                inner.ref_count.set(rc - 1);
                 if inner.ref_count.get() == 0 {
                     inner.drop_value();
                 }
@@ -59,7 +65,10 @@ impl<T: Trace> Deref for Gc<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { &self.ptr.as_ref().value }
+        unsafe {
+            // Получаем &ManuallyDrop<T> через UnsafeCell, затем через deref получаем &T
+            (&*self.ptr.as_ref().value.get()).deref()
+        }
     }
 }
 
@@ -69,13 +78,14 @@ impl<T: Trace> Trace for Gc<T> {
             let inner = self.ptr.as_ref();
             if !inner.accessed.get() {
                 inner.accessed.set(true);
-                inner.value.trace();
+                // Получаем доступ к значению через UnsafeCell
+                (&*inner.value.get()).deref().trace();
             }
         }
     }
 }
 
-/// Virtual heap with garbage collection
+/// Виртуальная куча с сборщиком мусора
 pub struct GcHeap {
     values: Vec<NonNull<GcInner<dyn Trace>>>,
 }
@@ -85,13 +95,13 @@ impl GcHeap {
         GcHeap { values: vec![] }
     }
 
-    /// Allocate new garbage-collectible object on a virtual heap
+    /// Выделяет новый объект с сборкой мусора на виртуальной куче
     pub fn alloc<T: Trace + 'static>(&mut self, value: T) -> Gc<T> {
         let raw_thin = Box::leak(Box::new(GcInner {
             ref_count: Cell::new(1),
             accessed: Cell::new(false),
             dropped: Cell::new(false),
-            value: ManuallyDrop::new(value),
+            value: UnsafeCell::new(ManuallyDrop::new(value)),
         }));
         let non_null_thin = NonNull::from(raw_thin);
         let non_null_dyn: NonNull<GcInner<dyn Trace>> = non_null_thin;
@@ -100,25 +110,22 @@ impl GcHeap {
         Gc { ptr: non_null_thin }
     }
 
-    /// sweep stage of garbage collection
+    /// Этап sweep сборки мусора
     pub fn sweep(&mut self) {
         self.values.retain_mut(|ptr| unsafe {
-            let inner = ptr.as_mut();
+            let inner = ptr.as_ref();
             if inner.dropped.get() {
-                // Inner value already dropped by refcounter in Gc::drop().
-                // Do not call drop on value second time
+                // Значение уже сброшено в Gc::drop, повторно не дропаем
                 ptr.drop_in_place();
-                //drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else if !inner.accessed.get() {
-                // Value is not accessed from root.
-                // Drop inner value and whole box.
+                // Значение не достижимо из корня – дропаем и удаляем
                 inner.drop_value();
                 ptr.drop_in_place();
-                //drop(Box::from_raw(ptr.as_ptr()));
                 false
             } else {
-                ptr.as_ref().accessed.set(false);
+                // Сбрасываем флаг accessed для следующего цикла
+                inner.accessed.set(false);
                 true
             }
         });
@@ -149,3 +156,4 @@ impl Default for GcHeap {
         Self::new()
     }
 }
+
