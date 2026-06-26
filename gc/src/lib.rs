@@ -1,8 +1,9 @@
 use std::{
     cell::{Cell, UnsafeCell},
+    fmt::Debug,
     mem::ManuallyDrop,
     ops::Deref,
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 mod trace;
 
@@ -66,6 +67,13 @@ pub struct Gc<T: Trace> {
     ptr: NonNull<GcInner<T>>,
 }
 
+impl<T: Trace + Debug> Debug for Gc<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = self.deref();
+        f.debug_struct("Gc").field("ptr", value).finish()
+    }
+}
+
 impl<T: Trace> Clone for Gc<T> {
     fn clone(&self) -> Gc<T> {
         unsafe {
@@ -103,6 +111,12 @@ impl<T: Trace> Trace for Gc<T> {
                 (&*inner.value.get()).deref().trace();
             }
         }
+    }
+}
+
+impl<T: Trace> Gc<T> {
+    pub fn ptr_eq(this: &Gc<T>, other: &Gc<T>) -> bool {
+        this.ptr.as_ptr() == other.ptr.as_ptr()
     }
 }
 

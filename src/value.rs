@@ -6,22 +6,24 @@ use std::{
 };
 
 use crate::chunk::FunctionObject;
+use gc::{Gc, Trace};
+
 use Value::*;
 
-#[derive(Debug)]
+#[derive(Debug, Trace)]
 pub enum Upvalue {
     Opened(usize), // Absolute stack index
     Closed(Value),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Trace)]
 pub struct ClosureObject {
-    pub function: Rc<FunctionObject>,
-    pub upvalues: Vec<Rc<RefCell<Upvalue>>>,
+    pub function: Gc<FunctionObject>,
+    pub upvalues: Vec<Gc<RefCell<Upvalue>>>,
 }
 
 impl ClosureObject {
-    pub fn new(func: Rc<FunctionObject>) -> Self {
+    pub fn new(func: Gc<FunctionObject>) -> Self {
         ClosureObject {
             upvalues: Vec::with_capacity(func.upvalue_count),
             function: func,
@@ -29,16 +31,16 @@ impl ClosureObject {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Trace)]
 #[non_exhaustive]
 pub enum Value {
     Number(f64),
     Str(Rc<str>),
     Bool(bool),
     Nil,
-    Function(Rc<FunctionObject>),
-    NativeFunction(fn(&[Value]) -> Result<Value, String>),
-    Closure(Rc<ClosureObject>),
+    Function(Gc<FunctionObject>),
+    NativeFunction(#[trace(skip)] fn(&[Value]) -> Result<Value, String>),
+    Closure(Gc<ClosureObject>),
 }
 
 impl Value {
@@ -46,9 +48,9 @@ impl Value {
         matches!(self, Value::Nil)
     }
 
-    pub fn code_object(&self) -> Result<Rc<FunctionObject>, String> {
+    pub fn code_object(&self) -> Result<Gc<FunctionObject>, String> {
         match self {
-            Function(code_object) => Ok(Rc::clone(code_object)),
+            Function(code_object) => Ok(Gc::clone(code_object)),
             _ => Err("Can only call functions and classes.".into()),
         }
     }
@@ -62,11 +64,11 @@ impl std::fmt::Display for Value {
             Bool(val) => write!(f, "{val}"),
             Nil => write!(f, "nil"),
             Function(func) => {
-                let name = func.as_ref().name.as_ref();
+                let name = func.name.as_ref();
                 write!(f, "fun {}", name)
             }
             Closure(closure) => {
-                let name = closure.as_ref().function.as_ref().name.as_ref();
+                let name = closure.function.name.as_ref();
                 write!(f, "fun {}", name)
             }
             NativeFunction(_) => write!(f, "native function"),
@@ -92,14 +94,14 @@ impl From<bool> for Value {
     }
 }
 
-impl From<Rc<FunctionObject>> for Value {
-    fn from(value: Rc<FunctionObject>) -> Self {
+impl From<Gc<FunctionObject>> for Value {
+    fn from(value: Gc<FunctionObject>) -> Self {
         Self::Function(value)
     }
 }
 
-impl From<Rc<ClosureObject>> for Value {
-    fn from(value: Rc<ClosureObject>) -> Self {
+impl From<Gc<ClosureObject>> for Value {
+    fn from(value: Gc<ClosureObject>) -> Self {
         Self::Closure(value)
     }
 }
@@ -200,8 +202,8 @@ impl PartialEq for Value {
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (Self::Str(l0), Self::Str(r0)) => l0 == r0,
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
-            (Self::Function(this), Self::Function(other)) => Rc::ptr_eq(this, other),
-            (Self::Closure(this), Self::Closure(other)) => Rc::ptr_eq(this, other),
+            (Self::Function(this), Self::Function(other)) => Gc::ptr_eq(this, other),
+            (Self::Closure(this), Self::Closure(other)) => Gc::ptr_eq(this, other),
             (Self::NativeFunction(this), Self::NativeFunction(other)) => {
                 ptr::fn_addr_eq(*this, *other)
             }

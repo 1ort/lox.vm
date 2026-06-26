@@ -1,13 +1,14 @@
 use crate::opcode::OpCode;
 use crate::value::Value;
 use debug::format_chunk;
+use gc::Trace;
 use std::fmt::Display;
 use std::ops::Range;
 use std::rc::Rc;
 
 pub mod debug;
 
-#[derive(Debug)]
+#[derive(Debug, Trace)]
 pub struct FunctionObject {
     pub upvalue_count: usize,
     pub chunk: Chunk,
@@ -26,7 +27,7 @@ impl FunctionObject {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Trace)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub spans: Vec<Range<usize>>,
