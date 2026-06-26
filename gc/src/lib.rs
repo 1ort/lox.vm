@@ -4,9 +4,11 @@ use std::{
     ops::Deref,
     ptr::NonNull,
 };
-use trace::Trace;
-
 mod trace;
+
+pub use trace::Trace;
+extern crate gc_derive;
+pub use gc_derive::Trace;
 
 #[cfg(test)]
 mod tests;
