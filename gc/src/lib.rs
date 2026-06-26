@@ -3,7 +3,7 @@ use std::{
     cell::{Cell, UnsafeCell},
     mem::ManuallyDrop,
     ops::Deref,
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
 use trace::Trace;
 
@@ -116,23 +116,33 @@ impl GcHeap {
 
     /// Этап sweep сборки мусора
     pub fn sweep(&mut self) {
+        // value pointers and layouts to deallocate
+        let mut to_dealloc: Vec<(*mut u8, Layout)> = vec![];
+
         self.values.retain(|(ptr, layout)| unsafe {
             let ptr = ptr.as_ptr();
-            let inner = ptr.as_ref_unchecked();
-            if inner.dropped.get() {
+            if (*ptr).dropped.get() {
                 ptr.drop_in_place();
-                dealloc(ptr as *mut u8, *layout);
+                to_dealloc.push((ptr as *mut u8, *layout));
+                //dealloc(ptr as *mut u8, *layout);
                 false
-            } else if !inner.accessed.get() {
-                inner.drop_value();
+            } else if !(*ptr).accessed.get() {
+                (*ptr).drop_value();
                 ptr.drop_in_place();
-                dealloc(ptr as *mut u8, *layout);
+                to_dealloc.push((ptr as *mut u8, *layout));
+                //dealloc(ptr as *mut u8, *layout);
                 false
             } else {
-                inner.accessed.set(false);
+                (*ptr).accessed.set(false);
                 true
             }
         });
+
+        for (ptr, layout) in to_dealloc {
+            unsafe {
+                dealloc(ptr, layout);
+            }
+        }
     }
 
     pub fn dropped_count(&self) -> usize {
