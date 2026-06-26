@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["gc"]
+members = ["gc", "gc_derive"]
 
 [package]
 name = "lox2"
