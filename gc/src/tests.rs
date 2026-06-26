@@ -39,14 +39,14 @@ fn test_shared_ownership() {
 }
 
 struct Node {
-    rc: Rc<()>,
+    _rc: Rc<()>,
     links: RefCell<Vec<Gc<Node>>>,
 }
 
 impl Node {
     fn new(counter: &Rc<()>) -> Self {
         Node {
-            rc: Rc::clone(counter),
+            _rc: Rc::clone(counter),
             links: RefCell::new(vec![]),
         }
     }
@@ -117,26 +117,54 @@ fn test_self_reference() {
     assert_eq!(Rc::strong_count(&counter), 1);
     assert!(heap.values.is_empty());
 }
+#[test]
+fn test_cycle_3_nodes() {
+    let counter = Rc::new(());
+    let mut heap = GcHeap::new();
+
+    let node_a = heap.alloc(Node::new(&counter));
+    let node_b = heap.alloc(Node::new(&counter));
+    let node_c = heap.alloc(Node::new(&counter));
+    node_a.link_to(node_b.clone());
+    node_b.link_to(node_c.clone());
+    node_c.link_to(node_a.clone());
+
+    assert_eq!(Rc::strong_count(&counter), 4);
+    assert_eq!(heap.dropped_count(), 0);
+
+    node_a.trace();
+    heap.sweep();
+
+    assert_eq!(Rc::strong_count(&counter), 4);
+    assert_eq!(heap.dropped_count(), 0);
+
+    drop(node_a);
+    drop(node_b);
+    drop(node_c);
+
+    assert_eq!(Rc::strong_count(&counter), 4);
+    assert_eq!(heap.dropped_count(), 0); // cycle persist
+
+    heap.sweep();
+
+    assert_eq!(Rc::strong_count(&counter), 1);
+    assert!(heap.values.is_empty());
+}
 
 #[test]
-fn test_live_cycle_and_diamond() {
+fn test_diamond() {
     let counter = Rc::new(());
     let mut heap = GcHeap::new();
 
     let root = heap.alloc(Node::new(&counter));
-    {
-        let node_a = heap.alloc(Node::new(&counter));
-        let node_b = heap.alloc(Node::new(&counter));
-        let node_c = heap.alloc(Node::new(&counter));
+    let node_a = heap.alloc(Node::new(&counter));
+    let node_b = heap.alloc(Node::new(&counter));
+    let node_c = heap.alloc(Node::new(&counter));
+    root.link_to(node_a.clone());
+    root.link_to(node_b.clone());
+    node_a.link_to(node_c.clone());
+    node_b.link_to(node_c.clone());
 
-        root.link_to(node_a.clone());
-        root.link_to(node_b.clone());
-        node_a.link_to(node_c.clone());
-        node_b.link_to(node_c.clone());
-        node_c.link_to(root.clone());
-
-        assert_eq!(Rc::strong_count(&counter), 5);
-    }
     assert_eq!(Rc::strong_count(&counter), 5);
 
     // Mark graph from root
@@ -147,8 +175,50 @@ fn test_live_cycle_and_diamond() {
     assert_eq!(Rc::strong_count(&counter), 5);
     assert_eq!(heap.values.len(), 4);
 
+    drop(root);
+    drop(node_a);
+    drop(node_b);
+    drop(node_c);
+
     // Do not mark as accessed now
     heap.sweep();
     assert_eq!(Rc::strong_count(&counter), 1);
     assert!(heap.values.is_empty());
+}
+
+#[test]
+fn test_live_cycle_and_diamond() {
+    let counter = Rc::new(());
+    let mut heap = GcHeap::new();
+
+    {
+        let root = heap.alloc(Node::new(&counter));
+        let node_a = heap.alloc(Node::new(&counter));
+        let node_b = heap.alloc(Node::new(&counter));
+        let node_c = heap.alloc(Node::new(&counter));
+
+        root.link_to(node_a.clone());
+        root.link_to(node_b.clone());
+        node_a.link_to(node_c.clone());
+        node_b.link_to(node_c.clone());
+        node_c.link_to(root.clone());
+        drop(node_a);
+        drop(node_b);
+        drop(node_c);
+
+        assert_eq!(Rc::strong_count(&counter), 5);
+        assert_eq!(heap.values.len(), 4);
+        // Mark graph from root
+        root.trace();
+        heap.sweep();
+
+        // all objects are still accessed from root
+        assert_eq!(Rc::strong_count(&counter), 5);
+        assert_eq!(heap.values.len(), 4);
+
+        drop(root);
+        heap.sweep();
+        assert_eq!(Rc::strong_count(&counter), 1);
+        assert!(heap.values.is_empty());
+    }
 }

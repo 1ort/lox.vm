@@ -1,5 +1,4 @@
 use std::{
-    alloc::{Layout, dealloc},
     cell::{Cell, UnsafeCell},
     mem::ManuallyDrop,
     ops::Deref,
@@ -13,22 +12,52 @@ mod trace;
 mod tests;
 
 #[repr(C)]
-struct GcInner<T: ?Sized + Trace> {
+struct GcHeader {
     ref_count: Cell<usize>,
     accessed: Cell<bool>,
     dropped: Cell<bool>,
-    value: UnsafeCell<ManuallyDrop<T>>,
+    drop_fn: unsafe fn(*mut Self) -> (),
+    dealloc_fn: unsafe fn(*mut Self) -> (),
 }
 
-impl<T: ?Sized + Trace> GcInner<T> {
-    fn drop_value(&self) {
-        if !self.dropped.get() {
-            self.dropped.set(true);
-            unsafe {
-                ManuallyDrop::drop(self.value.get().as_mut_unchecked());
-            }
+unsafe fn drop_inner_value<T: Trace>(header_ptr: *mut GcHeader) {
+    unsafe {
+        if !(*header_ptr).dropped.get() {
+            (*header_ptr).dropped.set(true);
+            let t_ptr = header_ptr.cast::<GcInner<T>>();
+            ManuallyDrop::drop((*t_ptr).value.get().as_mut_unchecked())
         }
     }
+}
+
+unsafe fn drop_and_dealloc_gc_inner<T: Trace>(header_ptr: *mut GcHeader) {
+    let t_ptr = header_ptr.cast::<GcInner<T>>();
+    unsafe {
+        drop(Box::from_raw(t_ptr));
+    }
+}
+
+unsafe fn decrement_rc<T: Trace>(header_ptr: *mut GcHeader) {
+    unsafe {
+        if (*header_ptr).dropped.get() {
+            return;
+        }
+        (*header_ptr).ref_count.update(|rc| rc - 1);
+        if (*header_ptr).ref_count.get() == 0 {
+            drop_inner_value::<T>(header_ptr);
+        }
+    }
+}
+
+unsafe fn increment_rc(header_ptr: *mut GcHeader) {
+    unsafe {
+        (*header_ptr).ref_count.update(|rc| rc + 1);
+    }
+}
+#[repr(C)]
+struct GcInner<T: Sized + Trace> {
+    header: GcHeader,
+    value: UnsafeCell<ManuallyDrop<T>>,
 }
 
 pub struct Gc<T: Trace> {
@@ -38,9 +67,8 @@ pub struct Gc<T: Trace> {
 impl<T: Trace> Clone for Gc<T> {
     fn clone(&self) -> Gc<T> {
         unsafe {
-            let inner = self.ptr.as_ref();
-            let rc = inner.ref_count.get();
-            inner.ref_count.set(rc + 1);
+            let header_ptr = self.ptr.as_ptr().cast::<GcHeader>();
+            increment_rc(header_ptr);
         }
         Gc { ptr: self.ptr }
     }
@@ -50,14 +78,8 @@ impl<T: Trace> Drop for Gc<T> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            let inner = self.ptr.as_ref();
-            if !inner.dropped.get() {
-                let rc = inner.ref_count.get();
-                inner.ref_count.set(rc - 1);
-                if inner.ref_count.get() == 0 {
-                    inner.drop_value();
-                }
-            }
+            let header_ptr = self.ptr.as_ptr().cast::<GcHeader>();
+            decrement_rc::<T>(header_ptr);
         }
     }
 }
@@ -66,10 +88,7 @@ impl<T: Trace> Deref for Gc<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe {
-            // Получаем &ManuallyDrop<T> через UnsafeCell, затем через deref получаем &T
-            (&*self.ptr.as_ref().value.get()).deref()
-        }
+        unsafe { (&*self.ptr.as_ref().value.get()).deref() }
     }
 }
 
@@ -77,18 +96,16 @@ impl<T: Trace> Trace for Gc<T> {
     fn trace(&self) {
         unsafe {
             let inner = self.ptr.as_ref();
-            if !inner.accessed.get() {
-                inner.accessed.set(true);
-                // Получаем доступ к значению через UnsafeCell
+            if !inner.header.accessed.get() {
+                inner.header.accessed.set(true);
                 (&*inner.value.get()).deref().trace();
             }
         }
     }
 }
 
-/// Виртуальная куча с сборщиком мусора
 pub struct GcHeap {
-    values: Vec<(NonNull<GcInner<dyn Trace>>, Layout)>,
+    values: Vec<NonNull<GcHeader>>,
 }
 
 impl GcHeap {
@@ -96,41 +113,38 @@ impl GcHeap {
         GcHeap { values: vec![] }
     }
 
-    /// Выделяет новый объект с сборкой мусора на виртуальной куче
     pub fn alloc<T: Trace + 'static>(&mut self, value: T) -> Gc<T> {
-        let raw_thin = Box::leak(Box::new(GcInner {
-            ref_count: Cell::new(1),
-            accessed: Cell::new(false),
-            dropped: Cell::new(false),
+        let raw_inner = Box::leak(Box::new(GcInner {
+            header: GcHeader {
+                ref_count: Cell::new(1),
+                accessed: Cell::new(false),
+                dropped: Cell::new(false),
+                drop_fn: drop_inner_value::<T>,
+                dealloc_fn: drop_and_dealloc_gc_inner::<T>,
+            },
             value: UnsafeCell::new(ManuallyDrop::new(value)),
         }));
 
-        let layout = Layout::for_value(raw_thin);
-
-        let non_null_thin = NonNull::from(raw_thin);
-        let non_null_dyn: NonNull<GcInner<dyn Trace>> = non_null_thin;
-
-        self.values.push((non_null_dyn, layout));
-        Gc { ptr: non_null_thin }
+        let non_null_inner = NonNull::from(raw_inner);
+        let non_null_header: NonNull<GcHeader> = non_null_inner.cast::<GcHeader>();
+        self.values.push(non_null_header);
+        Gc {
+            ptr: non_null_inner,
+        }
     }
 
-    /// Этап sweep сборки мусора
     pub fn sweep(&mut self) {
         // value pointers and layouts to deallocate
-        let mut to_dealloc: Vec<(*mut u8, Layout)> = vec![];
+        let mut to_dealloc: Vec<*mut GcHeader> = vec![];
 
-        self.values.retain(|(ptr, layout)| unsafe {
+        self.values.retain(|&ptr| unsafe {
             let ptr = ptr.as_ptr();
             if (*ptr).dropped.get() {
-                ptr.drop_in_place();
-                to_dealloc.push((ptr as *mut u8, *layout));
-                //dealloc(ptr as *mut u8, *layout);
+                to_dealloc.push(ptr);
                 false
             } else if !(*ptr).accessed.get() {
-                (*ptr).drop_value();
-                ptr.drop_in_place();
-                to_dealloc.push((ptr as *mut u8, *layout));
-                //dealloc(ptr as *mut u8, *layout);
+                ((*ptr).drop_fn)(ptr);
+                to_dealloc.push(ptr);
                 false
             } else {
                 (*ptr).accessed.set(false);
@@ -138,20 +152,15 @@ impl GcHeap {
             }
         });
 
-        for (ptr, layout) in to_dealloc {
-            unsafe {
-                dealloc(ptr, layout);
-            }
+        for ptr in to_dealloc {
+            unsafe { ((*ptr).dealloc_fn)(ptr) }
         }
     }
 
     pub fn dropped_count(&self) -> usize {
         self.values
             .iter()
-            .filter(|(ptr, _)| unsafe {
-                let inner = ptr.as_ref();
-                inner.dropped.get()
-            })
+            .filter(|&ptr| unsafe { (*ptr.as_ptr()).dropped.get() })
             .count()
     }
 }
