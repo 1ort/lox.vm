@@ -1,9 +1,11 @@
+use gc::{Gc, GcHeap};
+
 use crate::{
     builtins::Builtin,
     chunk::{FunctionObject, debug::format_instruction},
     interner::Interner,
     opcode::OpCode,
-    value::{ClosureObject, Upvalue, Value},
+    value::{self, ClosureObject, Upvalue, Value},
 };
 use std::{
     cell::RefCell,
@@ -37,16 +39,18 @@ pub struct VM {
     frames: Vec<CallFrame>,
     globals: HashMap<Rc<str>, Value>,
     interner: Interner,
-    open_upvalues: BTreeMap<usize, Rc<RefCell<Upvalue>>>,
+    heap: GcHeap,
+    open_upvalues: BTreeMap<usize, Gc<RefCell<Upvalue>>>,
 }
 
 impl<'a> VM {
-    pub fn new(interner: Interner) -> Self {
+    pub fn new(interner: Interner, heap: GcHeap) -> Self {
         Self {
             stack: Vec::with_capacity(STACK_MAX),
             frames: Vec::with_capacity(FRAMES_MAX),
             globals: HashMap::new(),
             interner,
+            heap,
             open_upvalues: BTreeMap::new(),
         }
     }
@@ -58,8 +62,8 @@ impl<'a> VM {
         }
     }
 
-    pub(super) fn borrow_interner(&mut self) -> &mut Interner {
-        &mut self.interner
+    pub(super) fn borrow_interner_and_heap(&mut self) -> (&mut Interner, &mut GcHeap) {
+        (&mut self.interner, &mut self.heap)
     }
 
     fn reset(&mut self) {
@@ -101,7 +105,7 @@ impl<'a> VM {
         let Value::Closure(closure) = &self.stack[self.frame().fp] else {
             panic!("Expect ClosureObject at the bottom of stack")
         };
-        closure.as_ref()
+        closure
     }
 
     #[inline(always)]
@@ -180,7 +184,8 @@ impl<'a> VM {
 
     pub fn interpret(&mut self, func: FunctionObject) -> Result<Value, RuntimeError> {
         self.reset();
-        let closure = Rc::new(ClosureObject::new(Rc::new(func)));
+        let gc_func = self.heap.alloc(func);
+        let closure = self.heap.alloc(ClosureObject::new(gc_func));
         self.push_stack(closure);
         self.debug_chunk();
         self.run()
@@ -348,7 +353,7 @@ impl<'a> VM {
                     let arg_count = self.next_word();
                     match self.peek_stack(arg_count) {
                         Value::Closure(closure) => {
-                            let code_object = closure.function.as_ref();
+                            let code_object = &closure.function;
                             if arg_count != code_object.arity as u16 {
                                 return Err(format!(
                                     "Expected {} arguments but got {}.",
@@ -389,7 +394,7 @@ impl<'a> VM {
                     let upvalue_index = self.next_word();
                     let new_value = self.peek_stack(0).clone();
                     let upvalue_rc = &self.current_closure().upvalues[upvalue_index as usize];
-                    let upvalue_rc = Rc::clone(upvalue_rc);
+                    let upvalue_rc = Gc::clone(upvalue_rc);
 
                     let t = match *upvalue_rc.borrow() {
                         Upvalue::Opened(index) => {
@@ -406,25 +411,26 @@ impl<'a> VM {
                     let Value::Function(fun) = value else {
                         panic!("Can't build closure: invalid function object index");
                     };
-
-                    let mut closure = ClosureObject::new(Rc::clone(fun));
+                    let mut closure = ClosureObject::new(Gc::clone(fun));
                     for _ in 0..fun.upvalue_count {
                         let is_local = self.next_byte();
                         let index = self.next_word();
                         let upvalue = if is_local == 1 {
-                            // all upvalues pointing to same stack index should be ref-counted
+                            // all upvalues pointing to same stack index should be allocated on heap
                             let abs_stack_index = self.frame().fp + index as usize;
                             self.open_upvalues
                                 .entry(abs_stack_index)
                                 .or_insert_with(|| {
-                                    Rc::new(RefCell::new(Upvalue::Opened(abs_stack_index)))
+                                    self.heap
+                                        .alloc(RefCell::new(Upvalue::Opened(abs_stack_index)))
                                 })
                         } else {
                             &self.current_closure().upvalues[index as usize]
                         };
-                        closure.upvalues.push(Rc::clone(upvalue));
+                        closure.upvalues.push(Gc::clone(upvalue));
                     }
-                    self.push_stack(Rc::new(closure));
+                    let closure = self.heap.alloc(closure);
+                    self.push_stack(closure);
                 }
                 OpCode::CloseUpvalue => {
                     let abs_stack_index = self.stack.len() - 1;
@@ -445,7 +451,8 @@ mod tests {
 
     fn run(chunk: Chunk) -> Result<Value, RuntimeError> {
         let interner = Interner::new();
-        let mut vm = VM::new(interner);
+        let heap = GcHeap::new();
+        let mut vm = VM::new(interner, heap);
         let mut code_object = FunctionObject::new(&Rc::from(""));
         code_object.chunk = chunk;
         vm.interpret(code_object)

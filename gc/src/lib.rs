@@ -3,7 +3,7 @@ use std::{
     fmt::Debug,
     mem::ManuallyDrop,
     ops::Deref,
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
 mod trace;
 

@@ -210,6 +210,8 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod test {
+    use gc::GcHeap;
+
     use super::compile;
     use crate::interner::Interner;
     #[test]
@@ -248,8 +250,20 @@ mod test {
             let init = "var a;var b;var c;var d;var e;";
             let left = &format!("{{{init}{left}}}");
             let right = &format!("{{{init}{right}}}");
-            let chunk_left = compile("test", left, &mut Interner::default()).unwrap();
-            let chunk_right = compile("test", right, &mut Interner::default()).unwrap();
+            let chunk_left = compile(
+                "test",
+                left,
+                &mut Interner::default(),
+                &mut GcHeap::default(),
+            )
+            .unwrap();
+            let chunk_right = compile(
+                "test",
+                right,
+                &mut Interner::default(),
+                &mut GcHeap::default(),
+            )
+            .unwrap();
             assert_eq!(
                 chunk_left.chunk.code, chunk_right.chunk.code,
                 "case # {index}"
