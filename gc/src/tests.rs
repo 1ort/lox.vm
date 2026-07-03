@@ -222,3 +222,27 @@ fn test_live_cycle_and_diamond() {
         assert!(heap.values.is_empty());
     }
 }
+
+#[test]
+fn test_interner() {
+    let mut heap = GcHeap::new();
+    assert_eq!(heap.interner.len(), 0);
+
+    let x = "foo".to_owned();
+    let interned_x = heap.intern_string(&x);
+    assert_eq!(&*interned_x, &x);
+    assert_eq!(heap.interner.len(), 1);
+    assert_eq!(heap.values.len(), 1);
+
+    let y = "foo".to_owned();
+    let interned_y = heap.intern_string(&y);
+    assert_eq!(&*interned_y, &y);
+    assert_eq!(heap.interner.len(), 1);
+    assert_eq!(heap.values.len(), 1);
+
+    let z = "bar".to_owned();
+    let interned_z = heap.intern_string(&z);
+    assert_eq!(&*interned_z, &z);
+    assert_eq!(heap.interner.len(), 2);
+    assert_eq!(heap.values.len(), 2);
+}

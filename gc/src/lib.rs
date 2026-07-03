@@ -1,5 +1,8 @@
+use core::hash::{Hash, Hasher};
 use std::{
+    borrow::Borrow,
     cell::{Cell, UnsafeCell},
+    collections::HashSet,
     fmt::Debug,
     mem::ManuallyDrop,
     ops::Deref,
@@ -67,6 +70,24 @@ pub struct Gc<T: Trace> {
     ptr: NonNull<GcInner<T>>,
 }
 
+impl<T: Trace + PartialEq> PartialEq for Gc<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.deref().eq(other.deref())
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.deref().ne(other.deref())
+    }
+}
+
+impl<T: Trace + Eq> Eq for Gc<T> {}
+
+impl<T: Trace + Hash> Hash for Gc<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.deref().hash(state);
+    }
+}
+
 impl<T: Trace + Debug> Debug for Gc<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = self.deref();
@@ -120,13 +141,23 @@ impl<T: Trace> Gc<T> {
     }
 }
 
+impl<T: Trace> Borrow<T> for Gc<T> {
+    fn borrow(&self) -> &T {
+        self.deref()
+    }
+}
+
 pub struct GcHeap {
     values: Vec<NonNull<GcHeader>>,
+    interner: HashSet<Gc<String>>,
 }
 
 impl GcHeap {
     pub fn new() -> GcHeap {
-        GcHeap { values: vec![] }
+        GcHeap {
+            values: vec![],
+            interner: HashSet::new(),
+        }
     }
 
     pub fn alloc<T: Trace + 'static>(&mut self, value: T) -> Gc<T> {
@@ -147,6 +178,15 @@ impl GcHeap {
         Gc {
             ptr: non_null_inner,
         }
+    }
+
+    pub fn intern_string(&mut self, value: &String) -> Gc<String> {
+        if let Some(gc) = self.interner.get(value) {
+            return Gc::clone(gc);
+        }
+        let gc: Gc<String> = self.alloc(value.clone());
+        self.interner.insert(Gc::clone(&gc));
+        gc
     }
 
     pub fn sweep(&mut self) {
