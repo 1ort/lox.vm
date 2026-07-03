@@ -74,10 +74,6 @@ impl<T: Trace + PartialEq> PartialEq for Gc<T> {
     fn eq(&self, other: &Self) -> bool {
         self.deref().eq(other.deref())
     }
-
-    fn ne(&self, other: &Self) -> bool {
-        self.deref().ne(other.deref())
-    }
 }
 
 impl<T: Trace + Eq> Eq for Gc<T> {}
@@ -180,11 +176,11 @@ impl GcHeap {
         }
     }
 
-    pub fn intern_string(&mut self, value: &String) -> Gc<String> {
-        if let Some(gc) = self.interner.get(value) {
+    pub fn intern_string(&mut self, value: String) -> Gc<String> {
+        if let Some(gc) = self.interner.get(&value) {
             return Gc::clone(gc);
         }
-        let gc: Gc<String> = self.alloc(value.clone());
+        let gc: Gc<String> = self.alloc(value);
         self.interner.insert(Gc::clone(&gc));
         gc
     }

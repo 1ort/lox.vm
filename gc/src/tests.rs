@@ -229,20 +229,20 @@ fn test_interner() {
     assert_eq!(heap.interner.len(), 0);
 
     let x = "foo".to_owned();
-    let interned_x = heap.intern_string(&x);
-    assert_eq!(&*interned_x, &x);
+    let interned_x = heap.intern_string(x);
+    assert_eq!(&*interned_x, "foo");
     assert_eq!(heap.interner.len(), 1);
     assert_eq!(heap.values.len(), 1);
 
     let y = "foo".to_owned();
-    let interned_y = heap.intern_string(&y);
-    assert_eq!(&*interned_y, &y);
+    let interned_y = heap.intern_string(y);
+    assert_eq!(&*interned_y, "foo");
     assert_eq!(heap.interner.len(), 1);
     assert_eq!(heap.values.len(), 1);
 
     let z = "bar".to_owned();
-    let interned_z = heap.intern_string(&z);
-    assert_eq!(&*interned_z, &z);
+    let interned_z = heap.intern_string(z);
+    assert_eq!(&*interned_z, "bar");
     assert_eq!(heap.interner.len(), 2);
     assert_eq!(heap.values.len(), 2);
 }
