@@ -4,6 +4,7 @@ use crate::compile::Compiler;
 use crate::compile::compiler::Upvalue;
 use crate::opcode::OpCode;
 use crate::value::Value;
+use gc::Gc;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -76,7 +77,7 @@ impl Compiler {
 
     pub(crate) fn emit_closure(
         &mut self,
-        function: Rc<FunctionObject>,
+        function: Gc<FunctionObject>,
         upvalues: &[Upvalue],
         span: Range<usize>,
     ) {

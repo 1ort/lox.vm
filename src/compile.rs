@@ -1,5 +1,6 @@
 use crate::{chunk::FunctionObject, interner::Interner};
 use compiler::Compiler;
+use gc::GcHeap;
 use lexer::Lexer;
 use std::{
     iter::Peekable,
@@ -19,12 +20,13 @@ pub fn compile(
     name: &str,
     source: &str,
     interner: &mut Interner,
+    heap: &mut GcHeap,
 ) -> Result<FunctionObject, Vec<SyntaxError>> {
     let lexer = Lexer::new(source);
     let function_object = FunctionObject::new(&interner.intern(name));
 
     let mut tokens = lexer.peekable();
-    let compiler = Parser::new(source, &mut tokens, function_object, interner);
+    let compiler = Parser::new(source, &mut tokens, function_object, interner, heap);
     compiler.compile()
 }
 
@@ -60,6 +62,7 @@ struct Parser<'a> {
     source: &'a str,
     tokens: &'a mut Peekable<Lexer<'a>>,
     interner: &'a mut Interner,
+    heap: &'a mut GcHeap,
 
     errors: Vec<SyntaxError>,
     compiler: Compiler,
@@ -71,11 +74,13 @@ impl<'a> Parser<'a> {
         tokens: &'a mut Peekable<Lexer<'a>>,
         function_object: FunctionObject,
         interner: &'a mut Interner,
+        heap: &'a mut GcHeap,
     ) -> Self {
         Self {
             source,
             tokens,
             interner,
+            heap,
             errors: Vec::new(),
             compiler: Compiler::new(function_object, FunctionKind::Script),
         }
@@ -205,6 +210,8 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod test {
+    use gc::GcHeap;
+
     use super::compile;
     use crate::interner::Interner;
     #[test]
@@ -243,8 +250,20 @@ mod test {
             let init = "var a;var b;var c;var d;var e;";
             let left = &format!("{{{init}{left}}}");
             let right = &format!("{{{init}{right}}}");
-            let chunk_left = compile("test", left, &mut Interner::default()).unwrap();
-            let chunk_right = compile("test", right, &mut Interner::default()).unwrap();
+            let chunk_left = compile(
+                "test",
+                left,
+                &mut Interner::default(),
+                &mut GcHeap::default(),
+            )
+            .unwrap();
+            let chunk_right = compile(
+                "test",
+                right,
+                &mut Interner::default(),
+                &mut GcHeap::default(),
+            )
+            .unwrap();
             assert_eq!(
                 chunk_left.chunk.code, chunk_right.chunk.code,
                 "case # {index}"

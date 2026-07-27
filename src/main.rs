@@ -13,6 +13,7 @@ mod vm;
 use std::env;
 use std::process::ExitCode;
 
+use gc::GcHeap;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
@@ -28,7 +29,8 @@ fn main() -> ExitCode {
 fn repl() -> ExitCode {
     let mut rl = DefaultEditor::new().expect("Can not start repl");
     let interner = Interner::new();
-    let mut vm = VM::new(interner);
+    let heap = GcHeap::new();
+    let mut vm = VM::new(interner, heap);
     vm.add_builtins(builtins::get_builtins());
     loop {
         let readline = rl.readline(">> ");
@@ -36,7 +38,9 @@ fn repl() -> ExitCode {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())
                     .expect("Can not add line to history");
-                let function_object = compile("REPL", &line, vm.borrow_interner());
+                let (interner, heap) = vm.borrow_interner_and_heap();
+
+                let function_object = compile("REPL", &line, interner, heap);
                 if let Err(errors) = function_object {
                     for error in errors {
                         // TODO: add error formatter

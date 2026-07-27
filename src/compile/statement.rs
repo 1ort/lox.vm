@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::Identifier;
 use super::Parser;
 use super::SyntaxError;
@@ -61,7 +59,7 @@ impl<'a> Parser<'a> {
         result?;
 
         self.compiler.emit_closure(
-            Rc::new(function_object),
+            self.heap.alloc(function_object),
             &inner_context.upvalues,
             fun_tok.span.clone(),
         );
